@@ -5,6 +5,7 @@ param environmentName = 'prod'
 param image = readEnvironmentVariable('IMAGE', 'ghcr.io/bradleyhet/corella-assistant:main')
 param gitSha = readEnvironmentVariable('GIT_SHA', 'dev')
 param activeRevisionName = readEnvironmentVariable('ACTIVE_REVISION', '')
+param revisionSuffix = readEnvironmentVariable('REVISION_SUFFIX', '')
 param deployApp = bool(readEnvironmentVariable('DEPLOY_APP', 'true'))
 param minReplicas = 0
 param maxReplicas = 3

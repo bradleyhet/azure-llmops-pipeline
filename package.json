@@ -16,6 +16,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "audit": "bun audit --audit-level=high --ignore=GHSA-jmr9-qjv8-65gv --ignore=GHSA-7pqw-9j4j-h8q3",
     "eval:smoke": "promptfoo eval -c promptfooconfig.yaml --filter-metadata tier=smoke --max-concurrency 4 -o results/smoke.json",
     "eval:smoke:http": "promptfoo eval -c promptfooconfig.http.yaml --filter-metadata tier=smoke --max-concurrency 4 --no-cache -o results/smoke-http.json",
     "eval:full:http": "promptfoo eval -c promptfooconfig.http.yaml --max-concurrency 3 --no-cache -o results/full-http.json",

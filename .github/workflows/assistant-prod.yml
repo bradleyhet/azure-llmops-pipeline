@@ -1,0 +1,38 @@
+name: Assistant (prod)
+
+# Second consumer of the same reusable pipeline: a version tag or a manual run deploys a
+# canary revision in rg-llmops-prod, verifies it and promotes it. The prod environment's
+# required-reviewer rule is the approval gate before `deploy`; on a private repository on
+# the Free plan that rule is unavailable, so until the repository is public the gate is that
+# only a tag push or a manual dispatch reaches this workflow.
+#
+# First deploy of prod: run scripts/phase2-seed-secret.sh with RG=rg-llmops-prod after a
+# DEPLOY_APP=false deploy created the vault, then tag.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+  security-events: write
+  actions: read
+  pull-requests: write
+
+concurrency:
+  group: assistant-prod
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    uses: ./.github/workflows/reusable-ai-service.yml
+    with:
+      environment: prod
+      image-name: ghcr.io/${{ github.repository_owner }}/corella-assistant
+      container-app: corella-assistant
+      bicep-params: infra/prod.bicepparam
+      deploy: true
+    secrets: inherit

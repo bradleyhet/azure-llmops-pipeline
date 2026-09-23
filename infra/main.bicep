@@ -30,6 +30,9 @@ param gitSha string = 'dev'
 @description('Revision that receives 100 percent of traffic. Empty pins traffic to the latest revision, which is only right when a single revision exists; the pipeline always passes the current revision so a canary can start at zero.')
 param activeRevisionName string = ''
 
+@description('Suffix of the revision this deploy creates (the pipeline passes the short git sha). Empty lets Container Apps pick one.')
+param revisionSuffix string = ''
+
 @minValue(0)
 param minReplicas int = 0
 
@@ -109,6 +112,7 @@ module app 'modules/app.bicep' = if (deployApp) {
     sutModel: sutModel
     gitSha: gitSha
     activeRevisionName: activeRevisionName
+    revisionSuffix: revisionSuffix
     minReplicas: minReplicas
     maxReplicas: maxReplicas
     tags: tags

@@ -11,6 +11,8 @@ param image string
 param sutModel string
 param gitSha string
 param activeRevisionName string
+@description('Suffix for the revision this template creates, e.g. the short git sha; the revision is named <app>--<suffix>. Empty lets Container Apps generate one.')
+param revisionSuffix string = ''
 param minReplicas int
 param maxReplicas int
 param tags object
@@ -33,6 +35,82 @@ var pinnedTraffic = [
   }
 ]
 var traffic = empty(activeRevisionName) ? latestTraffic : pinnedTraffic
+
+// The pipeline names each revision after the short git sha so the canary URL is predictable.
+var baseTemplate = {
+  containers: [
+    {
+      name: 'assistant'
+      image: image
+      resources: {
+        cpu: json('0.25')
+        memory: '0.5Gi'
+      }
+      env: [
+        {
+          name: 'OPENROUTER_API_KEY'
+          secretRef: secretName
+        }
+        {
+          name: 'SUT_MODEL'
+          value: sutModel
+        }
+        {
+          name: 'GIT_SHA'
+          value: gitSha
+        }
+        {
+          name: 'PORT'
+          value: string(port)
+        }
+      ]
+      probes: [
+        {
+          type: 'Startup'
+          httpGet: {
+            path: '/healthz'
+            port: port
+          }
+          initialDelaySeconds: 2
+          periodSeconds: 3
+          failureThreshold: 10
+        }
+        {
+          type: 'Liveness'
+          httpGet: {
+            path: '/healthz'
+            port: port
+          }
+          periodSeconds: 10
+          failureThreshold: 3
+        }
+        {
+          type: 'Readiness'
+          httpGet: {
+            path: '/readyz'
+            port: port
+          }
+          periodSeconds: 5
+          failureThreshold: 3
+        }
+      ]
+    }
+  ]
+  scale: {
+    minReplicas: minReplicas
+    maxReplicas: maxReplicas
+    rules: [
+      {
+        name: 'http-concurrency'
+        http: {
+          metadata: {
+            concurrentRequests: '20'
+          }
+        }
+      }
+    ]
+  }
+}
 
 resource app 'Microsoft.App/containerApps@2024-03-01' = {
   name: name
@@ -63,80 +141,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
         }
       ]
     }
-    template: {
-      containers: [
-        {
-          name: 'assistant'
-          image: image
-          resources: {
-            cpu: json('0.25')
-            memory: '0.5Gi'
-          }
-          env: [
-            {
-              name: 'OPENROUTER_API_KEY'
-              secretRef: secretName
-            }
-            {
-              name: 'SUT_MODEL'
-              value: sutModel
-            }
-            {
-              name: 'GIT_SHA'
-              value: gitSha
-            }
-            {
-              name: 'PORT'
-              value: string(port)
-            }
-          ]
-          probes: [
-            {
-              type: 'Startup'
-              httpGet: {
-                path: '/healthz'
-                port: port
-              }
-              initialDelaySeconds: 2
-              periodSeconds: 3
-              failureThreshold: 10
-            }
-            {
-              type: 'Liveness'
-              httpGet: {
-                path: '/healthz'
-                port: port
-              }
-              periodSeconds: 10
-              failureThreshold: 3
-            }
-            {
-              type: 'Readiness'
-              httpGet: {
-                path: '/readyz'
-                port: port
-              }
-              periodSeconds: 5
-              failureThreshold: 3
-            }
-          ]
-        }
-      ]
-      scale: {
-        minReplicas: minReplicas
-        maxReplicas: maxReplicas
-        rules: [
-          {
-            name: 'http-concurrency'
-            http: {
-              metadata: {
-                concurrentRequests: '20'
-              }
-            }
-          }
-        ]
-      }
-    }
+    template: union(baseTemplate, empty(revisionSuffix) ? {} : { revisionSuffix: revisionSuffix })
   }
 }
 

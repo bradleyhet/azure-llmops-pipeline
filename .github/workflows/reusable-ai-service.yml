@@ -1,0 +1,572 @@
+name: Reusable AI service pipeline
+
+# One workflow_call pipeline, consumed by assistant-dev.yml and assistant-prod.yml.
+#
+#   quality ─┐
+#   secrets-scan, codeql, dependency-audit, iac-scan ─┤
+#   eval-gate (in-process promptfoo smoke tier) ──────┴─> build (image, Trivy, SBOM)
+#        └─> deploy (Bicep: new revision at zero traffic)
+#              └─> verify-canary (Python: /readyz, promptfoo over HTTP, thresholds)
+#                    ├─ pass ─> promote (traffic 100 to the new revision, old deactivated)
+#                    └─ fail ─> rollback (new revision deactivated; traffic never moved)
+#
+# The caller decides the GitHub environment (dev or prod), the image name, the Bicep
+# parameter file and whether to deploy. Azure credentials are never stored: azure/login
+# exchanges the job's OIDC token for the app registration's federated credential.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment (dev or prod). Holds AZURE_* variables, AZURE_RG and the OpenRouter key.
+        type: string
+        required: true
+      image-name:
+        description: Image repository without a tag, e.g. ghcr.io/bradleyhet/corella-assistant
+        type: string
+        required: true
+      container-app:
+        description: Container App name
+        type: string
+        default: corella-assistant
+      bicep-params:
+        description: Bicep parameter file for the environment
+        type: string
+        required: true
+      deploy:
+        description: Create a canary revision, verify it and promote it
+        type: boolean
+        default: false
+      smoke-filter:
+        description: promptfoo --filter-metadata expression for the gate and the canary
+        type: string
+        default: tier=smoke
+    outputs:
+      image:
+        description: Image reference that was built (and pushed unless a pull request)
+        value: ${{ jobs.build.outputs.image }}
+      revision:
+        description: Revision that received traffic, empty when deploy was false
+        value: ${{ jobs.promote.outputs.revision }}
+
+env:
+  PROMPTFOO_DISABLE_TELEMETRY: "1"
+  NODE_VERSION: "24"
+  BUN_VERSION: "1.3.3"
+
+jobs:
+  quality:
+    name: Quality (TypeScript and Python)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun run test
+      - uses: astral-sh/setup-uv@v10
+        with:
+          working-directory: pipeline
+      - name: Python pipeline tooling (ruff, pytest)
+        working-directory: pipeline
+        run: |
+          uv sync --locked
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pytest
+
+  secrets-scan:
+    name: Secrets scan (gitleaks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    # Code scanning uploads need GitHub Advanced Security on a private repository, which
+    # this account does not have; the job runs as soon as the repository is public.
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+
+  dependency-audit:
+    name: Dependency audit (bun audit, pip-audit)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: bun audit, high and critical (ignores listed in package.json with reasons in the README)
+        run: bun run audit
+      - uses: astral-sh/setup-uv@v10
+        with:
+          working-directory: pipeline
+      - name: pip-audit over the locked Python dependencies
+        working-directory: pipeline
+        run: |
+          uv export --locked --no-dev --no-emit-project --no-hashes --format requirements.txt -o requirements-audit.txt
+          uvx pip-audit --requirement requirements-audit.txt --no-deps --strict --desc
+
+  iac-scan:
+    name: IaC scan (Checkov on Bicep)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Checkov
+        run: |
+          mkdir -p results/checkov
+          docker run --rm -v "$PWD:/repo" -w /repo bridgecrew/checkov:latest \
+            --directory infra --framework bicep \
+            --output cli --output sarif --output-file-path console,results/checkov
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: checkov-sarif
+          path: results/checkov/results_sarif.sarif
+      - name: Upload to code scanning (public repository only)
+        if: ${{ !github.event.repository.private }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results/checkov/results_sarif.sarif
+          category: checkov-bicep
+
+  eval-gate:
+    name: Eval gate (in-process promptfoo, ${{ inputs.smoke-filter }})
+    needs: quality
+    # The OpenRouter key is an environment secret, so fork pull requests cannot run this.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: Cache promptfoo responses
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/promptfoo
+          key: promptfoo-${{ hashFiles('promptfooconfig.yaml', 'evals/**', 'src/**', 'corpus/**') }}
+          restore-keys: promptfoo-
+      - name: Run the smoke tier in-process
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        # promptfoo exits 100 when any case fails; the thresholds below decide, not that code.
+        continue-on-error: true
+        run: >
+          npx promptfoo eval -c promptfooconfig.yaml
+          --filter-metadata "${{ inputs.smoke-filter }}"
+          --max-concurrency 4
+          -o results/eval-gate.json
+      - uses: astral-sh/setup-uv@v10
+        with:
+          working-directory: pipeline
+      - name: Score against the thresholds
+        run: |
+          uv sync --locked --project pipeline
+          uv run --project pipeline parse-results results/eval-gate.json \
+            --label "Eval gate: in-process, ${{ inputs.smoke-filter }}" \
+            --metrics-out results/eval-gate-metrics.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: eval-gate
+          path: results/eval-gate*.json
+
+  build:
+    name: Build, scan and publish image
+    needs: [quality, secrets-scan, codeql, dependency-audit, iac-scan, eval-gate]
+    # codeql is skipped on a private repository; every other job must have passed.
+    if: >-
+      !cancelled()
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
+      && needs.eval-gate.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    env:
+      PUSH: ${{ github.event_name != 'pull_request' }}
+    outputs:
+      image: ${{ steps.ref.outputs.image }}
+      short-sha: ${{ steps.ref.outputs.short }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: ref
+        name: Image reference
+        run: |
+          short="${GITHUB_SHA::7}"
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+          echo "image=${{ inputs.image-name }}:$short" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        if: env.PUSH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ${{ inputs.image-name }}
+      - name: Build (push with SBOM and provenance, or load for a pull request)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: ${{ env.PUSH == 'true' }}
+          load: ${{ env.PUSH != 'true' }}
+          tags: ${{ steps.ref.outputs.image }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp || github.event.pull_request.updated_at || 'unknown' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: ${{ env.PUSH == 'true' && 'mode=max' || 'false' }}
+          sbom: ${{ env.PUSH == 'true' }}
+      - name: Trivy, SARIF (HIGH and CRITICAL with a fix available)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.ref.outputs.image }}
+          format: sarif
+          output: results/trivy.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: trivy-sarif
+          path: results/trivy.sarif
+      - name: Upload to code scanning (public repository only)
+        if: ${{ !github.event.repository.private }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results/trivy.sarif
+          category: trivy-image
+      - name: Trivy, fail on HIGH or CRITICAL with a fix available
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.ref.outputs.image }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          skip-setup-trivy: true
+      - name: Tag the scanned image as ${{ github.ref_name }}
+        if: env.PUSH == 'true'
+        run: docker buildx imagetools create -t "${{ inputs.image-name }}:${{ github.ref_name }}" "${{ steps.ref.outputs.image }}"
+      - name: Summary
+        run: |
+          {
+            echo "### Image"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Reference | \`${{ steps.ref.outputs.image }}\` |"
+            echo "| Pushed | ${{ env.PUSH }} |"
+            echo "| SBOM and provenance attached | ${{ env.PUSH }} |"
+            echo "| Trivy HIGH/CRITICAL with a fix | 0 (job would have failed otherwise) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  infra-plan:
+    name: Infra plan (what-if, no deploy)
+    needs: [build]
+    if: ${{ !inputs.deploy && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: What-if against ${{ vars.AZURE_RG }} with the image this run built
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          GIT_SHA: ${{ github.sha }}
+          REVISION_SUFFIX: ${{ needs.build.outputs.short-sha }}
+          DEPLOY_APP: "true"
+        run: |
+          set -euo pipefail
+          app="${{ inputs.container-app }}"
+          ACTIVE_REVISION="$(az containerapp show -n "$app" -g "${{ vars.AZURE_RG }}" \
+            --query "properties.configuration.ingress.traffic[?weight==\`100\`] | [0].revisionName" -o tsv 2>/dev/null || true)"
+          export ACTIVE_REVISION
+          az deployment group what-if -g "${{ vars.AZURE_RG }}" \
+            -f infra/main.bicep -p "${{ inputs.bicep-params }}" | tee results-whatif.txt
+          { echo "### Infra what-if (${{ inputs.environment }})"; echo; echo '```text'; sed 's/\x1b\[[0-9;]*m//g' results-whatif.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy canary revision (${{ inputs.environment }})
+    needs: [build]
+    if: ${{ inputs.deploy && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.rollout.outputs.canary-url }}
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      new-revision: ${{ steps.rollout.outputs.new-revision }}
+      previous-revision: ${{ steps.current.outputs.previous-revision }}
+      canary-url: ${{ steps.rollout.outputs.canary-url }}
+      app-fqdn: ${{ steps.rollout.outputs.app-fqdn }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az extension add --name containerapp --upgrade --only-show-errors
+      - id: current
+        name: Read the revision that holds traffic
+        run: |
+          set -euo pipefail
+          app="${{ inputs.container-app }}"; rg="${{ vars.AZURE_RG }}"
+          previous=""
+          if az containerapp show -n "$app" -g "$rg" -o none 2>/dev/null; then
+            previous="$(az containerapp show -n "$app" -g "$rg" \
+              --query "properties.configuration.ingress.traffic[?weight==\`100\`] | [0].revisionName" -o tsv)"
+            if [ -z "$previous" ]; then
+              # Traffic follows the latest revision (first deploy left it that way): pin to it.
+              previous="$(az containerapp show -n "$app" -g "$rg" --query properties.latestRevisionName -o tsv)"
+            fi
+          fi
+          suffix="${{ needs.build.outputs.short-sha }}"
+          if [ "${{ github.run_attempt }}" != "1" ]; then suffix="$suffix-r${{ github.run_attempt }}"; fi
+          echo "previous-revision=$previous" >> "$GITHUB_OUTPUT"
+          echo "suffix=$suffix" >> "$GITHUB_OUTPUT"
+          echo "Revision holding traffic: ${previous:-none (app does not exist yet)}; new suffix: $suffix"
+      - id: rollout
+        name: Bicep what-if, then deploy the new revision at zero traffic
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          GIT_SHA: ${{ github.sha }}
+          ACTIVE_REVISION: ${{ steps.current.outputs.previous-revision }}
+          REVISION_SUFFIX: ${{ steps.current.outputs.suffix }}
+          DEPLOY_APP: "true"
+        run: |
+          set -euo pipefail
+          app="${{ inputs.container-app }}"; rg="${{ vars.AZURE_RG }}"
+          name="pipeline-${{ github.run_id }}-${{ github.run_attempt }}"
+          az deployment group what-if -g "$rg" -f infra/main.bicep -p "${{ inputs.bicep-params }}"
+          az deployment group create -g "$rg" -n "$name" -f infra/main.bicep -p "${{ inputs.bicep-params }}" -o none
+          domain="$(az deployment group show -g "$rg" -n "$name" --query properties.outputs.environmentDefaultDomain.value -o tsv)"
+          latest="$(az deployment group show -g "$rg" -n "$name" --query properties.outputs.appLatestRevision.value -o tsv)"
+          fqdn="$(az deployment group show -g "$rg" -n "$name" --query properties.outputs.appFqdn.value -o tsv)"
+          expected="$app--${{ steps.current.outputs.suffix }}"
+          if [ "$latest" != "$expected" ]; then
+            echo "::error::deployment created revision '$latest', expected '$expected'"; exit 1
+          fi
+          {
+            echo "new-revision=$latest"
+            echo "canary-url=https://$app--${{ steps.current.outputs.suffix }}.$domain"
+            echo "app-fqdn=https://$fqdn"
+          } >> "$GITHUB_OUTPUT"
+      - name: Revisions and traffic after the deploy
+        run: |
+          {
+            echo "### Deploy (${{ inputs.environment }})"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Image | \`${{ needs.build.outputs.image }}\` |"
+            echo "| New revision (canary, 0 percent) | \`${{ steps.rollout.outputs.new-revision }}\` |"
+            echo "| Canary URL | ${{ steps.rollout.outputs.canary-url }} |"
+            echo "| Revision holding traffic | \`${{ steps.current.outputs.previous-revision || 'none: first deploy, traffic follows latest' }}\` |"
+            echo
+            echo '```text'
+            az containerapp revision list -n "${{ inputs.container-app }}" -g "${{ vars.AZURE_RG }}" \
+              --query "[].{revision:name, active:properties.active, traffic:properties.trafficWeight, state:properties.runningState, image:properties.template.containers[0].image}" -o table
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  verify-canary:
+    name: Verify canary (Python, promptfoo over HTTP)
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - uses: astral-sh/setup-uv@v10
+        with:
+          working-directory: pipeline
+      - run: uv sync --locked --project pipeline
+      - name: Wait for the canary revision to answer ready on its own URL
+        run: >
+          uv run --project pipeline verify-revision
+          --url "${{ needs.deploy.outputs.canary-url }}"
+          --expect-revision "${{ needs.deploy.outputs.new-revision }}"
+          --expect-sha "${{ github.sha }}"
+          --timeout 600 --interval 10
+      - name: Run the smoke tier against the canary URL
+        env:
+          ASSISTANT_URL: ${{ needs.deploy.outputs.canary-url }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        continue-on-error: true
+        run: >
+          npx promptfoo eval -c promptfooconfig.http.yaml
+          --filter-metadata "${{ inputs.smoke-filter }}"
+          --max-concurrency 4 --no-cache
+          -o results/canary.json
+      - name: Score against the thresholds (non-zero exit holds the canary at zero traffic)
+        run: >
+          uv run --project pipeline parse-results results/canary.json
+          --label "Canary ${{ needs.deploy.outputs.new-revision }} (${{ inputs.smoke-filter }})"
+          --metrics-out results/canary-metrics.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: canary-${{ inputs.environment }}
+          path: results/canary*.json
+
+  promote:
+    name: Promote canary to 100 percent
+    needs: [deploy, verify-canary]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      revision: ${{ needs.deploy.outputs.new-revision }}
+    steps:
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az extension add --name containerapp --upgrade --only-show-errors
+      - name: Move traffic, deactivate the previous revision
+        run: |
+          set -euo pipefail
+          app="${{ inputs.container-app }}"; rg="${{ vars.AZURE_RG }}"
+          new="${{ needs.deploy.outputs.new-revision }}"; previous="${{ needs.deploy.outputs.previous-revision }}"
+          az containerapp ingress traffic set -n "$app" -g "$rg" --revision-weight "$new=100" -o none
+          if [ -n "$previous" ] && [ "$previous" != "$new" ]; then
+            az containerapp revision deactivate -n "$app" -g "$rg" --revision "$previous" -o none
+          fi
+          {
+            echo "### Promote (${{ inputs.environment }})"
+            echo
+            echo "Traffic moved to \`$new\`; previous revision \`${previous:-none}\` deactivated."
+            echo
+            echo '```text'
+            az containerapp revision list -n "$app" -g "$rg" \
+              --query "[].{revision:name, active:properties.active, traffic:properties.trafficWeight, state:properties.runningState}" -o table
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Confirm the app FQDN now answers from the promoted revision
+        run: |
+          for _ in $(seq 1 30); do
+            body="$(curl -s --max-time 30 "${{ needs.deploy.outputs.app-fqdn }}/readyz" || true)"
+            echo "$body"
+            case "$body" in *"${{ needs.deploy.outputs.new-revision }}"*) exit 0;; esac
+            sleep 5
+          done
+          echo "::error::app FQDN did not answer from ${{ needs.deploy.outputs.new-revision }}"; exit 1
+
+  rollback:
+    name: Canary failed, traffic unchanged
+    needs: [deploy, verify-canary]
+    if: ${{ !cancelled() && needs.deploy.result == 'success' && needs.verify-canary.result != 'success' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az extension add --name containerapp --upgrade --only-show-errors
+      - name: Deactivate the failed canary; show that traffic never moved
+        run: |
+          set -euo pipefail
+          app="${{ inputs.container-app }}"; rg="${{ vars.AZURE_RG }}"
+          new="${{ needs.deploy.outputs.new-revision }}"; previous="${{ needs.deploy.outputs.previous-revision }}"
+          if [ -n "$previous" ] && [ "$previous" != "$new" ]; then
+            az containerapp revision deactivate -n "$app" -g "$rg" --revision "$new" -o none
+            note="Canary \`$new\` deactivated. Traffic stayed on \`$previous\` throughout."
+          else
+            note="First deploy of this environment: \`$new\` is the only revision, left active for inspection."
+          fi
+          {
+            echo "### Canary failed (${{ inputs.environment }})"
+            echo
+            echo "$note"
+            echo
+            echo '```text'
+            az containerapp revision list -n "$app" -g "$rg" \
+              --query "[].{revision:name, active:properties.active, traffic:properties.trafficWeight, state:properties.runningState}" -o table
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::canary $new failed verification; traffic unchanged"
+          exit 1

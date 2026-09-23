@@ -1,0 +1,41 @@
+name: Assistant (dev)
+
+# First consumer of the reusable pipeline.
+#   pull_request: quality, scans, eval gate, image build and Trivy, infra what-if. No deploy.
+#   push to main: all of that, then a canary revision in rg-llmops-dev, verified and promoted.
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - docs/**
+      - README.md
+  push:
+    branches: [main]
+    paths-ignore:
+      - docs/**
+      - README.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+  security-events: write
+  actions: read
+  pull-requests: write
+
+concurrency:
+  group: assistant-dev-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pipeline:
+    uses: ./.github/workflows/reusable-ai-service.yml
+    with:
+      environment: dev
+      image-name: ghcr.io/${{ github.repository_owner }}/corella-assistant
+      container-app: corella-assistant
+      bicep-params: infra/dev.bicepparam
+      deploy: ${{ github.event_name != 'pull_request' }}
+    secrets: inherit

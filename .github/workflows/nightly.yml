@@ -1,0 +1,104 @@
+name: Nightly full eval (dev)
+
+# Runs every test tier over HTTP against whichever dev revision holds traffic, scores it with
+# the same thresholds as the canary, appends a row to docs/results.md and commits it. A push
+# made with GITHUB_TOKEN starts no other workflow, so this never triggers a deploy.
+
+on:
+  schedule:
+    - cron: "0 18 * * *" # 02:00 Australia/Perth
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  PROMPTFOO_DISABLE_TELEMETRY: "1"
+
+concurrency:
+  group: nightly-dev
+  cancel-in-progress: false
+
+jobs:
+  full-eval:
+    name: Full tier over HTTP, record results
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az extension add --name containerapp --upgrade --only-show-errors
+      - id: target
+        name: Find the revision that holds traffic
+        run: |
+          set -euo pipefail
+          fqdn="$(az containerapp show -n corella-assistant -g "${{ vars.AZURE_RG }}" --query properties.configuration.ingress.fqdn -o tsv)"
+          revision="$(az containerapp show -n corella-assistant -g "${{ vars.AZURE_RG }}" \
+            --query "properties.configuration.ingress.traffic[?weight==\`100\`] | [0].revisionName" -o tsv)"
+          if [ -z "$revision" ]; then
+            revision="$(az containerapp show -n corella-assistant -g "${{ vars.AZURE_RG }}" --query properties.latestRevisionName -o tsv)"
+          fi
+          echo "url=https://$fqdn" >> "$GITHUB_OUTPUT"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.3"
+      - run: bun install --frozen-lockfile
+      - uses: astral-sh/setup-uv@v10
+        with:
+          working-directory: pipeline
+      - run: uv sync --locked --project pipeline
+      - name: Wake the app and confirm the revision
+        run: >
+          uv run --project pipeline verify-revision
+          --url "${{ steps.target.outputs.url }}"
+          --expect-revision "${{ steps.target.outputs.revision }}"
+          --timeout 300 --interval 10
+      - name: Run every tier over HTTP
+        env:
+          ASSISTANT_URL: ${{ steps.target.outputs.url }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        continue-on-error: true
+        run: >
+          npx promptfoo eval -c promptfooconfig.http.yaml
+          --max-concurrency 3 --no-cache
+          -o results/full-http.json
+      - id: score
+        name: Score against the thresholds
+        continue-on-error: true
+        run: >
+          uv run --project pipeline parse-results results/full-http.json
+          --label "Nightly full tier, ${{ steps.target.outputs.revision }}"
+          --metrics-out results/full-metrics.json
+      - name: Append the row to docs/results.md and commit it
+        run: |
+          set -euo pipefail
+          uv run --project pipeline eval-report \
+            --metrics results/full-metrics.json --out docs/results.md \
+            --environment dev --tier full \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/results.md
+          git commit -m "nightly: full-tier results for $(date -u +%Y-%m-%d) [skip ci]"
+          git push origin HEAD:main
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nightly-full
+          path: results/full-*.json
+      - name: Fail the run if a threshold was breached
+        if: steps.score.outcome != 'success'
+        run: |
+          echo "::error::nightly full tier breached a threshold; see the summary and docs/results.md"
+          exit 1

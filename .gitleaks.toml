@@ -1,0 +1,12 @@
+# gitleaks configuration. The default ruleset applies; the one allowlist below covers the
+# output-guard unit tests, which feed deliberately fake API keys and tokens to filterOutput
+# to prove they are redacted. No real credential is committed anywhere in this repository:
+# the OpenRouter key lives in Key Vault and in GitHub environment secrets only.
+title = "corella-assistant gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fake secrets in the output-guard tests (tests/guardrails.test.ts, filterOutput cases)"
+paths = ['''tests/guardrails\.test\.ts$''']

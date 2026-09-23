@@ -10,3 +10,4 @@ are in `pipeline/src/llmops_pipeline/parse_results.py`.
 |---|---|---|---|---|---|---|---|---|---|
 | 2026-09-23 11:08 | dev | `corella-assistant--82e9fb0` (rollback drill, bad `SUT_MODEL`; deactivated, traffic never left `--5083634`) | smoke | 30 | 20.0% (6/30, 24 provider errors) | 251 | 748 | 0.00000 | [35852147952](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/35852147952) |
 | 2026-09-23 11:19 | dev | `corella-assistant--5bb27e1` (revert of the drill; promoted) | smoke | 30 | 100.0% (30/30) | 1350 | 2835 | 0.00039 | [35853071238](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/35853071238) |
+| 2026-09-23 21:16 | dev | corella-assistant--5bb27e1 | full | 95 | 93.7% (89/95) | 1409 | 2684 | 0.00040 | [run](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/35920803635) |

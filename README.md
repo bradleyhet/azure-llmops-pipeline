@@ -144,6 +144,7 @@ Azure login is `azure/login` with the federated credential. `gh secret list` sho
 | gitleaks | no leaks across 13 commits |
 | Push to promoted, wall clock | 8 min 34 s |
 | Azure credential stored in GitHub | none |
+| Failure drill, [PR #1](https://github.com/bradleyhet/azure-llmops-pipeline/pull/1) with retrieval `minScore` raised above 1 | eval gate red at 17 of 30 (0.57 against the 0.95 floor), build and every later job skipped, nothing reached Azure; [run 35850272501](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/35850272501) |
 
 Three things it took to get here, kept because they are what an interviewer asks about:
 

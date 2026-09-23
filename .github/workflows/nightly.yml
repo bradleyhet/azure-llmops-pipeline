@@ -54,7 +54,7 @@ jobs:
         with:
           bun-version: "1.3.3"
       - run: bun install --frozen-lockfile
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
           working-directory: pipeline
       - run: uv sync --locked --project pipeline

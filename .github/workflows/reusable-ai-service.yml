@@ -72,7 +72,7 @@ jobs:
       - run: bun run lint
       - run: bun run typecheck
       - run: bun run test
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
           working-directory: pipeline
       - name: Python pipeline tooling (ruff, pytest)
@@ -134,7 +134,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: bun audit, high and critical (ignores listed in package.json with reasons in the README)
         run: bun run audit
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
           working-directory: pipeline
       - name: pip-audit over the locked Python dependencies
@@ -203,7 +203,7 @@ jobs:
           --filter-metadata "${{ inputs.smoke-filter }}"
           --max-concurrency 4
           -o results/eval-gate.json
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
           working-directory: pipeline
       - name: Score against the thresholds
@@ -453,7 +453,7 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
           working-directory: pipeline
       - run: uv sync --locked --project pipeline

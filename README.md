@@ -19,7 +19,7 @@ to Azure Container Apps, with:
 | 1. HTTP service and container | Done. See below. |
 | 2. Infrastructure as code (Bicep) | Done. Dev environment live, key resolved from Key Vault by managed identity. |
 | 3. Reusable pipeline, scans, scored canary | Done. Push to `main` produced canary `corella-assistant--323fcec` at 0 percent, verified 30 of 30 over HTTP, promoted to 100. |
-| 4. Prod environment and rollback drill | Next |
+| 4. Prod environment and rollback drill | Rollback drill done: a deploy-only fault reached dev as canary `corella-assistant--82e9fb0`, verify scored 6 of 30, traffic never left the live revision. Prod is blocked: the Free subscription allows one Container Apps environment in total (`MaxNumberOfGlobalEnvironmentsInSubExceeded`). |
 | 5. Observability and README | |
 
 ## The service
@@ -156,6 +156,33 @@ Three things it took to get here, kept because they are what an interviewer asks
   wants and adds `!cancelled()`.
 - gitleaks scans only the pushed commits on `push` but the whole history on
   `workflow_dispatch`, which is how it found the fake keys in the guardrail tests.
+
+### Phase 4 results, rollback drill (2026-09-23, [run 35852147952](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/35852147952))
+
+The eval-gate drill in Phase 3 stopped a bad change before an image existed. This drill
+asks the other question: what happens when a change passes every pre-deploy check and only
+breaks once it is running? A broken system prompt cannot do that here, because the gate runs
+the same code in-process, so the fault was put where only the deployment can see it:
+`infra/dev.bicepparam` set `sutModel` to a model id OpenRouter does not serve.
+
+| Check | Result |
+|---|---|
+| Eval gate, in-process | 30 of 30, unaware of the Bicep parameter |
+| Build, Trivy, Checkov, gitleaks | green; the image is the same code as the run before |
+| Deploy | canary `corella-assistant--82e9fb0` created at 0 percent; `/readyz` and `/version` answered on its own URL |
+| Verify canary over HTTP | 6 of 30 (0.20 against the 0.95 floor), 24 of 30 `/ask` calls errored; `parse-results` exited non-zero |
+| Promote | skipped |
+| Rollback job | deactivated `--82e9fb0`; `az containerapp revision list` shows `--5083634` still active at 100 |
+| App FQDN during and after | `/readyz` reported `corella-assistant--5083634` throughout |
+| Revert, [run 35853071238](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/35853071238) | 30 of 30 over HTTP; p50 1.35 s, p95 2.84 s; promoted to `corella-assistant--5bb27e1` |
+| Rollback command needed | none; traffic was pinned to the previous revision by the deploy, so there was nothing to move back |
+
+Both rows are in [`docs/results.md`](docs/results.md).
+
+Prod (`rg-llmops-prod`, Australia Southeast, empty) is waiting on a subscription decision:
+the Free trial subscription is capped at one Container Apps environment, so the second
+environment `prod.bicepparam` describes cannot be created until the subscription is
+upgraded to pay-as-you-go or prod shares the dev environment under another app name.
 
 ## What this does not show
 

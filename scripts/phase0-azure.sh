@@ -54,9 +54,17 @@ else
 fi
 
 echo "== Federated credentials (GitHub OIDC, no client secret)"
+# GitHub embeds the owner id and repo id in the OIDC subject claim, so the
+# subject must read repo:<owner>@<owner_id>/<repo>@<repo_id>:environment:<env>.
+# The ids never change even if the repo is renamed, which is the point.
+OWNER="${REPO%%/*}"
+REPO_NAME="${REPO##*/}"
+OWNER_ID=$(gh api "users/$OWNER" --jq .id | tr -d '')
+REPO_ID=$(gh api "repos/$REPO" --jq .id | tr -d '')
+[ -n "$OWNER_ID" ] && [ -n "$REPO_ID" ] || { echo "could not resolve GitHub ids for $REPO; does the repo exist?" >&2; exit 1; }
 for env in $ENVIRONMENTS; do
   name="github-$env"
-  subject="repo:$REPO:environment:$env"
+  subject="repo:$OWNER@$OWNER_ID/$REPO_NAME@$REPO_ID:environment:$env"
   existing=$(az ad app federated-credential list --id "$APP_ID" --query "[?name=='$name'].subject" -o tsv | tr -d '\r')
   if [ -z "$existing" ]; then
     az ad app federated-credential create --id "$APP_ID" --parameters "{
@@ -67,6 +75,14 @@ for env in $ENVIRONMENTS; do
       \"audiences\": [\"api://AzureADTokenExchange\"]
     }" --output none
     echo "created $name -> $subject"
+  elif [ "$existing" != "$subject" ]; then
+    az ad app federated-credential update --id "$APP_ID" --federated-credential-id "$name" --parameters "{
+      \"issuer\": \"https://token.actions.githubusercontent.com\",
+      \"subject\": \"$subject\",
+      \"description\": \"GitHub Actions, environment $env\",
+      \"audiences\": [\"api://AzureADTokenExchange\"]
+    }" --output none
+    echo "updated $name -> $subject (was $existing)"
   else
     echo "$name exists -> $existing"
   fi

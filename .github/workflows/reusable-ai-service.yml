@@ -318,7 +318,9 @@ jobs:
   infra-plan:
     name: Infra plan (what-if, no deploy)
     needs: [build]
-    if: ${{ !inputs.deploy && needs.build.result == 'success' }}
+    # A skipped upstream job (CodeQL on a private repo) makes the implicit success() false for
+    # every job below it, so each downstream job names the results it needs and adds !cancelled().
+    if: ${{ !cancelled() && !inputs.deploy && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     permissions:
@@ -350,7 +352,7 @@ jobs:
   deploy:
     name: Deploy canary revision (${{ inputs.environment }})
     needs: [build]
-    if: ${{ inputs.deploy && needs.build.result == 'success' }}
+    if: ${{ !cancelled() && inputs.deploy && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     environment:
       name: ${{ inputs.environment }}
@@ -440,6 +442,7 @@ jobs:
   verify-canary:
     name: Verify canary (Python, promptfoo over HTTP)
     needs: [build, deploy]
+    if: ${{ !cancelled() && needs.deploy.result == 'success' }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     permissions:
@@ -488,6 +491,7 @@ jobs:
   promote:
     name: Promote canary to 100 percent
     needs: [deploy, verify-canary]
+    if: ${{ !cancelled() && needs.deploy.result == 'success' && needs.verify-canary.result == 'success' }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     permissions:

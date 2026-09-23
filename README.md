@@ -18,8 +18,8 @@ to Azure Container Apps, with:
 | 0. Azure foundation and identity | Done. Federated login proven by `azure-login-check.yml`. |
 | 1. HTTP service and container | Done. See below. |
 | 2. Infrastructure as code (Bicep) | Done. Dev environment live, key resolved from Key Vault by managed identity. |
-| 3. Reusable pipeline, scans, scored canary | Next |
-| 4. Prod environment and rollback drill | |
+| 3. Reusable pipeline, scans, scored canary | Done. Push to `main` produced canary `corella-assistant--323fcec` at 0 percent, verified 30 of 30 over HTTP, promoted to 100. |
+| 4. Prod environment and rollback drill | Next |
 | 5. Observability and README | |
 
 ## The service
@@ -105,6 +105,56 @@ The app definition stores only the vault URL:
 | `POST /ask` from the internet | grounded answer, 2.1 s, 0.0005 USD |
 | Key value anywhere in `az containerapp show` output | no |
 | Container console log | one JSON line per request, no query text |
+
+## Pipeline
+
+`.github/workflows/reusable-ai-service.yml` is one `workflow_call` workflow. `assistant-dev.yml`
+runs it on every pull request (no deploy) and on every push to `main` (deploy to
+`rg-llmops-dev`); `assistant-prod.yml` runs the same file on a `v*` tag against
+`rg-llmops-prod`. `nightly.yml` runs the full tier over HTTP against dev and appends a row to
+[`docs/results.md`](docs/results.md). The Python side lives in [`pipeline/`](pipeline/README.md).
+
+| Stage | What runs | Fails on |
+|---|---|---|
+| quality | eslint, tsc, vitest (93 tests); ruff and pytest over `pipeline/` (16 tests) | anything |
+| secrets-scan | gitleaks over the history; `.gitleaks.toml` allowlists the fake keys the output-guard tests feed to `filterOutput` | any leak |
+| codeql | JavaScript/TypeScript and Python | runs once the repository is public (private repositories need Advanced Security) |
+| dependency-audit | `bun audit` at high; `pip-audit` over the uv lockfile | any high or critical with a fix; two `extract-zip` advisories are ignored by id (dev-only, reached through promptfoo, no fixed release, not in the image) |
+| iac-scan | Checkov on `infra/`, bicep framework | any failed check |
+| eval-gate | promptfoo smoke tier in-process, 30 cases, responses cached on config, evals, src and corpus | pass rate under 0.95, p95 over 4 s, cost per case over 0.01 USD |
+| build | buildx to `ghcr.io/bradleyhet/corella-assistant:<sha>` with SBOM and provenance attestations; Trivy HIGH and CRITICAL with `--ignore-unfixed`; the `:main` tag is applied only after the scan | any fixable HIGH or CRITICAL |
+| deploy | `az deployment group what-if`, then `create` with the new image, `revisionSuffix` set to the short sha and traffic pinned to the revision that already holds it, so the new revision starts at 0 percent | deployment error, or a revision not named `corella-assistant--<sha>` |
+| verify-canary | `verify-revision` polls `https://corella-assistant--<sha>.<env>/readyz` and checks `/version`; promptfoo smoke tier over HTTP at that URL; `parse-results` applies the same thresholds as the gate and writes the table to the job summary | thresholds |
+| promote | `az containerapp ingress traffic set <new>=100`, previous revision deactivated, app FQDN checked to answer from the new revision | |
+| rollback | on a verify failure the new revision is deactivated; traffic was never moved | |
+
+Azure login is `azure/login` with the federated credential. `gh secret list` shows only
+`OPENROUTER_API_KEY`, which the eval jobs need on the runner.
+
+### Phase 3 results (2026-09-23, [run 35849205060](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/35849205060))
+
+| Check | Result |
+|---|---|
+| Eval gate, in-process | 30 of 30; p50 0.78 s, p95 1.82 s; 0.00039 USD per case |
+| Canary `corella-assistant--323fcec` on its own URL | 30 of 30; p50 1.36 s, p95 2.61 s; 0.00039 USD per case, 0.0116 USD for the tier |
+| Traffic while it was verified | `corella-assistant--nvixkmu` 100, canary 0 |
+| After promote | one active revision, `corella-assistant--323fcec` at 100; the app FQDN reports it from `/readyz` |
+| Trivy on the image | 0 HIGH or CRITICAL with a fix |
+| Checkov on `infra/` | 1 passed, 0 failed, 4 skipped with the reason beside each skip |
+| gitleaks | no leaks across 13 commits |
+| Push to promoted, wall clock | 8 min 34 s |
+| Azure credential stored in GitHub | none |
+
+Three things it took to get here, kept because they are what an interviewer asks about:
+
+- GHCR refused the workflow token with `permission_denied: write_package` until the package
+  granted the repository the Write role under Manage Actions access. A package first pushed
+  with a personal token is not linked to any repository.
+- A skipped job (CodeQL on a private repository) makes GitHub's implicit `success()` false
+  for every job downstream of it, so every job below `build` names the `needs.*.result` it
+  wants and adds `!cancelled()`.
+- gitleaks scans only the pushed commits on `push` but the whole history on
+  `workflow_dispatch`, which is how it found the fake keys in the guardrail tests.
 
 ## What this does not show
 

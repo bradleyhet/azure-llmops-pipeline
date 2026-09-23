@@ -12,3 +12,7 @@ param minReplicas = 0
 param maxReplicas = 2
 param purgeProtection = false
 param logRetentionDays = 30
+// Rollback drill: a model id OpenRouter does not serve. The in-process eval gate does not read
+// this file, so the image builds and the canary deploys; the HTTP verify must fail and traffic
+// must stay on the current revision. Reverted by the next commit.
+param sutModel = 'google/gemini-2.5-flash-drill-does-not-exist'

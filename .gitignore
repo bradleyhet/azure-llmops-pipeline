@@ -1,0 +1,16 @@
+node_modules/
+.env
+.env.*
+!.env.example
+results/*
+!results/.gitkeep
+*.log
+.DS_Store
+__pycache__/
+.venv/
+.ruff_cache/
+.pytest_cache/
+
+# Private planning notes, never published
+SESSION-HANDOFF.md
+PLAN.md

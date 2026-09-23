@@ -1,0 +1,36 @@
+name: Azure login check
+
+# Proves the GitHub-to-Entra OIDC federation works with no stored Azure secret.
+# Run by hand: gh workflow run azure-login-check.yml -f environment=dev
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment whose federated credential to use
+        type: choice
+        default: dev
+        options: [dev, prod]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  login:
+    name: OIDC login to Azure (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Azure login via federated credential
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Show the resource group the pipeline is scoped to
+        run: az group show --name "${{ vars.AZURE_RG }}" --output table
+
+      - name: Show the identity we are running as
+        run: az account show --query '{subscription:name, tenant:tenantId, user:user.name}' --output table

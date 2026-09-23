@@ -12,9 +12,12 @@ REPO="${REPO:-bradleyhet/azure-llmops-pipeline}"
 APP_NAME="${APP_NAME:-gh-azure-llmops-pipeline}"
 KEY_SOURCE="${KEY_SOURCE:-K:/MyGithub/LLM_Eval/.env}"
 
-APP_ID=$(az ad app list --display-name "$APP_NAME" --query '[0].appId' -o tsv | tr -d '')
-SUB_ID=$(az account show --query id -o tsv | tr -d '')
-TENANT_ID=$(az account show --query tenantId -o tsv | tr -d '')
+APP_ID=$(az ad app list --display-name "$APP_NAME" --query '[0].appId' -o tsv | tr -d '
+')
+SUB_ID=$(az account show --query id -o tsv | tr -d '
+')
+TENANT_ID=$(az account show --query tenantId -o tsv | tr -d '
+')
 [ -n "$APP_ID" ] || { echo "app $APP_NAME not found; run scripts/phase0-azure.sh first" >&2; exit 1; }
 
 if [ -z "${OPENROUTER_API_KEY:-}" ]; then
@@ -22,7 +25,8 @@ if [ -z "${OPENROUTER_API_KEY:-}" ]; then
 fi
 [ -n "$OPENROUTER_API_KEY" ] || { echo "OPENROUTER_API_KEY not set and not found in $KEY_SOURCE" >&2; exit 1; }
 
-ME=$(gh api user --jq .id | tr -d '')
+ME=$(gh api user --jq .id | tr -d '
+')
 
 echo "== Environments"
 gh api -X PUT "repos/$REPO/environments/dev" --silent
@@ -31,7 +35,8 @@ gh api -X PUT "repos/$REPO/environments/prod" --silent \
   --input - <<JSON
 {"reviewers":[{"type":"User","id":$ME}]}
 JSON
-echo "prod (required reviewer: $(gh api user --jq .login | tr -d ''))"
+echo "prod (required reviewer: $(gh api user --jq .login | tr -d '
+'))"
 
 echo "== Variables and secrets"
 for env in dev prod; do

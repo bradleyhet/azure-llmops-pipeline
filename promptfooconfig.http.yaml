@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+# Over-the-wire eval against a running instance: the canary verifier and the nightly run.
+#   ASSISTANT_URL=http://localhost:8080 npx promptfoo eval -c promptfooconfig.http.yaml --filter-metadata tier=smoke
+# Same test files and assertions as promptfooconfig.yaml; the only difference is the provider.
+description: Corella Bank support assistant evals over HTTP against a deployed revision
+
+prompts:
+  - "{{query}}"
+
+providers:
+  - id: https
+    label: corella-assistant-http
+    config:
+      url: "{{env.ASSISTANT_URL}}/ask"
+      method: POST
+      headers:
+        Content-Type: application/json
+      body:
+        query: "{{query}}"
+        customerId: "{{customerId}}"
+        history: "{{history}}"
+      # Reshapes the /ask body into the in-process provider's { output, tokenUsage, cost, metadata }.
+      transformResponse: file://src/eval/http-transform.ts
+      maxRetries: 2
+
+defaultTest:
+  options:
+    transform: output.answer
+    provider:
+      text:
+        id: openrouter:anthropic/claude-sonnet-5
+        config:
+          temperature: 0
+          max_tokens: 1024
+
+tests:
+  - file://evals/tests/grounded.yaml
+  - file://evals/tests/tools.yaml
+  - file://evals/tests/guardrails.yaml
+  - file://evals/tests/abstention.yaml
+  - file://evals/tests/budget.yaml
+
+evaluateOptions:
+  maxConcurrency: 4
+
+outputPath: results/latest-http.json

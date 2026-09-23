@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+# In-process eval: the pipeline's pre-deploy gate. Runs answer() directly under Node with no
+# server, so a pull request is graded before any image is built. The HTTP variant that runs
+# against a deployed revision is promptfooconfig.http.yaml; both share every test file.
+description: Corella Bank support assistant evals, in-process (RAG, tools, guardrails, abstention, budget)
+
+prompts:
+  - "{{query}}"
+
+providers:
+  - id: file://src/eval/provider.ts
+    label: corella-assistant
+    config:
+      model: google/gemini-2.5-flash
+      retrieval:
+        k: 6
+        minScore: 0
+      maxToolRounds: 3
+      temperature: 0
+      maxTokens: 600
+
+defaultTest:
+  options:
+    # The provider returns { answer, context, trace }. Assertions see the answer string;
+    # RAG graders use contextTransform to reach the raw output's context array.
+    transform: output.answer
+    provider:
+      text:
+        id: openrouter:anthropic/claude-sonnet-5
+        config:
+          temperature: 0
+          max_tokens: 1024
+
+tests:
+  - file://evals/tests/grounded.yaml
+  - file://evals/tests/tools.yaml
+  - file://evals/tests/guardrails.yaml
+  - file://evals/tests/abstention.yaml
+  - file://evals/tests/budget.yaml
+
+evaluateOptions:
+  maxConcurrency: 4
+
+outputPath: results/latest.json

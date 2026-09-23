@@ -17,8 +17,8 @@ to Azure Container Apps, with:
 |---|---|
 | 0. Azure foundation and identity | Done. Federated login proven by `azure-login-check.yml`. |
 | 1. HTTP service and container | Done. See below. |
-| 2. Infrastructure as code (Bicep) | Next |
-| 3. Reusable pipeline, scans, scored canary | |
+| 2. Infrastructure as code (Bicep) | Done. Dev environment live, key resolved from Key Vault by managed identity. |
+| 3. Reusable pipeline, scans, scored canary | Next |
 | 4. Prod environment and rollback drill | |
 | 5. Observability and README | |
 
@@ -73,6 +73,38 @@ ASSISTANT_URL=http://localhost:8080 bun run eval:smoke:http
 | Image size | 79.7 MB (`oven/bun:1-slim` pinned by digest, Debian packages upgraded, non-root) |
 | Trivy, HIGH and CRITICAL with a fix available | 0 |
 | Trivy, HIGH and CRITICAL with no upstream fix | 43, all in Debian base packages; the pipeline runs Trivy with `--ignore-unfixed` |
+
+## Infrastructure
+
+`infra/main.bicep` (resource-group scope) deploys, per environment:
+
+| Module | Resource | Notes |
+|---|---|---|
+| `logging` | Log Analytics workspace | PerGB2018, 30 days dev, 90 prod |
+| `identity` | User-assigned managed identity | the only principal that can read the secret |
+| `keyvault` | Key Vault, RBAC authorisation | soft delete on; purge protection is a parameter; Secrets User role bound to the identity inside the template |
+| `environment` | Container Apps managed environment | consumption plan, logs to the workspace |
+| `app` | Container App, Multiple revisions mode | ingress 8080, scale 0 to 2, probes on `/healthz` and `/readyz`, secret is a `keyVaultUrl` reference resolved by the identity |
+
+The OpenRouter key is written to the vault once by hand (`scripts/phase2-seed-secret.sh`).
+The app definition stores only the vault URL:
+
+```json
+{ "name": "openrouter-api-key",
+  "keyVaultUrl": "https://kv-llmops-dev-m3ucqv.vault.azure.net/secrets/openrouter-api-key",
+  "identity": ".../userAssignedIdentities/id-corella-assistant" }
+```
+
+### Phase 2 results (2026-09-23, rg-llmops-dev)
+
+| Check | Result |
+|---|---|
+| `az deployment group what-if` | four creates, as designed |
+| Checkov on `infra/` | 0 failed, 4 suppressed on the vault with reasons in the file |
+| `GET /readyz` on the Azure FQDN | 200, revision `corella-assistant--nvixkmu` |
+| `POST /ask` from the internet | grounded answer, 2.1 s, 0.0005 USD |
+| Key value anywhere in `az containerapp show` output | no |
+| Container console log | one JSON line per request, no query text |
 
 ## What this does not show
 

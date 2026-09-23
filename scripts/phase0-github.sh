@@ -30,11 +30,18 @@ ME=$(gh api user --jq .id | tr -d '\r')
 echo "== Environments"
 gh api -X PUT "repos/$REPO/environments/dev" --silent
 echo "dev"
-gh api -X PUT "repos/$REPO/environments/prod" --silent \
-  --input - <<JSON
+# Required reviewers are a deployment protection rule. GitHub offers them on
+# public repos for every plan, but on private repos only with Pro or Team, so
+# fall back to a plain environment and say so.
+if gh api -X PUT "repos/$REPO/environments/prod" --silent --input - <<JSON 2>/dev/null
 {"reviewers":[{"type":"User","id":$ME}]}
 JSON
-echo "prod (required reviewer: $(gh api user --jq .login | tr -d '\r'))"
+then
+  echo "prod (required reviewer: $(gh api user --jq .login | tr -d '\r'))"
+else
+  gh api -X PUT "repos/$REPO/environments/prod" --silent
+  echo "prod (no required reviewer: protection rules need a public repo or GitHub Pro on this plan)"
+fi
 
 echo "== Variables and secrets"
 for env in dev prod; do

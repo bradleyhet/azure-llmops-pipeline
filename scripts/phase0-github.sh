@@ -7,6 +7,9 @@
 # environment secret for the eval jobs. The runtime copy of that key lives in
 # Key Vault, seeded in Phase 2, never here.
 set -euo pipefail
+# Git Bash on Windows rewrites arguments starting with / into Windows paths,
+# which mangles Azure resource ids such as /subscriptions/... Disable that.
+export MSYS_NO_PATHCONV=1
 
 REPO="${REPO:-bradleyhet/azure-llmops-pipeline}"
 APP_NAME="${APP_NAME:-gh-azure-llmops-pipeline}"

@@ -8,6 +8,9 @@
 # Prints the values the GitHub side needs (scripts/phase0-github.sh reads them
 # from the same az queries, so nothing has to be copied by hand).
 set -euo pipefail
+# Git Bash on Windows rewrites arguments starting with / into Windows paths,
+# which mangles Azure resource ids such as /subscriptions/... Disable that.
+export MSYS_NO_PATHCONV=1
 
 REPO="${REPO:-bradleyhet/azure-llmops-pipeline}"
 APP_NAME="${APP_NAME:-gh-azure-llmops-pipeline}"

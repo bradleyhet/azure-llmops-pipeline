@@ -19,7 +19,7 @@ to Azure Container Apps, with:
 | 1. HTTP service and container | Done. See below. |
 | 2. Infrastructure as code (Bicep) | Done. Dev environment live, key resolved from Key Vault by managed identity. |
 | 3. Reusable pipeline, scans, scored canary | Done. Push to `main` produced canary `corella-assistant--323fcec` at 0 percent, verified 30 of 30 over HTTP, promoted to 100. |
-| 4. Prod environment and rollback drill | Rollback drill done: a deploy-only fault reached dev as canary `corella-assistant--82e9fb0`, verify scored 6 of 30, traffic never left the live revision. Prod is blocked: the Free subscription allows one Container Apps environment in total (`MaxNumberOfGlobalEnvironmentsInSubExceeded`). |
+| 4. Prod environment and rollback drill | Rollback drill done: a deploy-only fault reached dev as canary `corella-assistant--82e9fb0`, verify scored 6 of 30, traffic never left the live revision. Prod live: tag `v0.1.0` deployed `corella-assistant--cdd893a` to `rg-llmops-prod`, verified 30 of 30 over HTTP and promoted. |
 | 5. Observability and README | |
 
 ## The service
@@ -187,10 +187,32 @@ the same code in-process, so the fault was put where only the deployment can see
 
 Both rows are in [`docs/results.md`](docs/results.md).
 
-Prod (`rg-llmops-prod`, Australia Southeast, empty) is waiting on a subscription decision:
-the Free trial subscription is capped at one Container Apps environment, so the second
-environment `prod.bicepparam` describes cannot be created until the subscription is
-upgraded to pay-as-you-go or prod shares the dev environment under another app name.
+### Phase 4 results, prod release (2026-09-24, [run 35950368110](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/35950368110))
+
+Prod first hit a subscription limit: the Azure free trial allows one Container Apps
+environment in total, dev held it, and the prod what-if failed with
+`MaxNumberOfGlobalEnvironmentsInSubExceeded`. Free trial subscriptions cannot request quota
+increases, so the subscription was upgraded to pay-as-you-go. That lifted the limit with no
+quota request. Before the upgrade removed the trial's hard spending cap, cost was bounded
+in code and infrastructure: `/ask` rate limits and a daily request cap, a 0.2 GB daily
+Log Analytics cap, and a monthly budget alert on each resource group.
+
+Prod is its own resource group in Australia Southeast, with its own environment, vault,
+identity and workspace, created from the same `main.bicep` as dev through
+`prod.bicepparam` (purge protection on, 90-day log retention, up to 3 replicas). The first
+deploy ran with `DEPLOY_APP=false`, the OpenRouter key was written to the new vault by
+hand, and the tag did the rest.
+
+| Check | Result |
+|---|---|
+| Trigger | `git push origin v0.1.0`; `assistant-prod.yml` calls the same reusable workflow as dev |
+| Quality, gitleaks, Checkov, dependency audit | green |
+| Eval gate, in-process | 30 of 30 |
+| Build and Trivy | green; the image is the same commit already promoted on dev |
+| Canary `corella-assistant--cdd893a` over HTTP | 30 of 30; p50 1.66 s, p95 3.15 s; 0.00039 USD per case; 0 errors |
+| Promote | one active revision, `corella-assistant--cdd893a` at 100 percent; `/readyz` and `/version` on the prod FQDN report it |
+| Tag to promoted, wall clock | 9 min 3 s |
+| Azure credential stored in GitHub | none; the `prod` environment has its own federated credential |
 
 ## What this does not show
 

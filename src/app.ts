@@ -9,6 +9,10 @@
  *   GET  /version   build identity (git sha, build time, Container Apps revision, model)
  *   POST /ask       { query, customerId, history? } -> AskResponse
  *
+ * `/ask` is public, so it is bounded before it reaches the model: a body size cap, field
+ * length caps in the schema, a per-client per-minute limit and a per-replica daily limit
+ * (`src/rate-limit.ts`). Both limits answer 429 with `Retry-After`.
+ *
  * One JSON log line per request goes to stdout for Log Analytics. The query text is not
  * logged; only its cost, tokens, latency, guardrail outcome and the revision that served it.
  */
@@ -17,6 +21,7 @@ import { answer, type AnswerResult, type BlockedBy, type ToolTrace } from "./ass
 import type { LlmClient, Usage } from "./assistant/openrouter.js";
 import type { CustomerStore } from "./fixtures/customers.js";
 import type { Retriever } from "./retrieval/retriever.js";
+import { clientKey, createRateLimiter, type LimitOutcome, type RateLimitConfig } from "./rate-limit.js";
 
 export interface RetrievedHit {
   id: string;
@@ -65,12 +70,17 @@ export interface AppConfig {
   log?: (entry: Record<string, unknown>) => void;
   /** Clock, injectable for tests. */
   now?: () => number;
+  /** Limits on `/ask`; omitted means unlimited (tests, the in-process eval never builds an app). */
+  rateLimit?: RateLimitConfig;
 }
 
 export interface App {
   fetch(req: Request): Promise<Response>;
   readonly ready: boolean;
 }
+
+/** Largest `/ask` body accepted, in bytes. A 4000-character query plus 20 turns of history fits well inside. */
+export const MAX_BODY_BYTES = 16_384;
 
 const historyMessage = z.object({ role: z.string(), content: z.unknown() });
 
@@ -98,8 +108,16 @@ function normaliseHistory(raw: unknown): unknown {
   return raw;
 }
 
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8" } });
+function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", ...headers } });
+}
+
+function limited(outcome: Extract<LimitOutcome, { ok: false }>): Response {
+  return json(
+    429,
+    { error: "rate limited", limit: outcome.limit, retryAfterSeconds: outcome.retryAfterSeconds },
+    { "retry-after": String(outcome.retryAfterSeconds) },
+  );
 }
 
 export function toAskResponse(result: AnswerResult, customerId: string, revision: string): AskResponse {
@@ -124,11 +142,17 @@ export function createApp(config: AppConfig): App {
   const log = config.log ?? ((entry) => console.log(JSON.stringify(entry)));
   const now = config.now ?? Date.now;
   const revision = config.version.revision;
+  const limiter = config.rateLimit ? createRateLimiter(config.rateLimit) : null;
 
   async function handleAsk(req: Request): Promise<{ res: Response; extra: Record<string, unknown> }> {
+    const tooLarge = { res: json(413, { error: `body exceeds ${MAX_BODY_BYTES} bytes` }), extra: {} };
+    if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return tooLarge;
+    const text = await req.text();
+    // Content-Length can be absent (chunked) or wrong, so measure what actually arrived.
+    if (new TextEncoder().encode(text).length > MAX_BODY_BYTES) return tooLarge;
     let raw: unknown;
     try {
-      raw = await req.json();
+      raw = JSON.parse(text);
     } catch {
       return { res: json(400, { error: "body must be JSON" }), extra: {} };
     }
@@ -145,6 +169,9 @@ export function createApp(config: AppConfig): App {
     if (!config.llm) {
       return { res: json(503, { error: "model client not configured" }), extra: {} };
     }
+    // Counted only here, once the request is valid and about to cost a model call.
+    const daily = limiter?.checkDaily(now());
+    if (daily && !daily.ok) return { res: limited(daily), extra: { limited: daily.limit } };
 
     const { query, customerId, history } = parsed.data;
     let result: AnswerResult;
@@ -204,7 +231,13 @@ export function createApp(config: AppConfig): App {
       } else if (req.method === "GET" && path === "/version") {
         res = json(200, config.version);
       } else if (req.method === "POST" && path === "/ask") {
-        ({ res, extra } = await handleAsk(req));
+        const perClient = limiter?.checkClient(clientKey(req), now());
+        if (perClient && !perClient.ok) {
+          res = limited(perClient);
+          extra = { limited: perClient.limit };
+        } else {
+          ({ res, extra } = await handleAsk(req));
+        }
       } else if (path === "/ask") {
         res = json(405, { error: "use POST" });
       } else {

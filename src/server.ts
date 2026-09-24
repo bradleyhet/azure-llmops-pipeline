@@ -6,6 +6,8 @@
  *   PORT                 default 8080
  *   GIT_SHA, BUILD_TIME  injected at image build
  *   CONTAINER_APP_REVISION  set by Azure Container Apps
+ *   ASK_PER_CLIENT_PER_MINUTE  /ask requests one client may make a minute (default 60, 0 = off)
+ *   ASK_PER_DAY             model-bound /ask requests per replica per UTC day (default 2000, 0 = off)
  */
 import { createApp } from "./app.js";
 import { createOpenRouterClient } from "./assistant/openrouter.js";
@@ -18,6 +20,11 @@ const model = process.env.SUT_MODEL ?? "google/gemini-2.5-flash";
 const apiKey = process.env.OPENROUTER_API_KEY;
 const corpusDir = process.env.CORPUS_DIR ?? "corpus";
 
+function limitFromEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name] ?? fallback);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
 const chunks = loadCorpus(corpusDir);
 const app = createApp({
   retriever: createBm25Retriever(chunks),
@@ -27,6 +34,10 @@ const app = createApp({
   retrieval: { k: 6, minScore: 0 },
   maxToolRounds: 3,
   maxTokens: 600,
+  rateLimit: {
+    perClientPerMinute: limitFromEnv("ASK_PER_CLIENT_PER_MINUTE", 60),
+    perDay: limitFromEnv("ASK_PER_DAY", 2000),
+  },
   version: {
     service: "corella-assistant",
     gitSha: process.env.GIT_SHA ?? "dev",

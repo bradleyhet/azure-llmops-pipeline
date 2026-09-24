@@ -33,6 +33,13 @@ to Azure Container Apps, with:
 | `GET /version` | git sha, build time, Container Apps revision, model |
 | `POST /ask` | `{ query, customerId, history? }` to a grounded answer with context, retrieval hits, tool trace, guardrail outcome, tokens, cost and latency |
 
+`/ask` is open to the internet, so it is bounded before it reaches the model: bodies over
+16 KB get 413, and the schema caps `query` at 4000 characters and `history` at 20 turns. Each
+client gets 60 requests a minute and each replica 2000 model-bound requests a UTC day, both
+answered with 429 and `Retry-After` (`ASK_PER_CLIENT_PER_MINUTE`, `ASK_PER_DAY`). The client is
+the last `X-Forwarded-For` entry, the one the ingress appends. The daily count is the cost
+ceiling: at most `maxReplicas` times 2000 model calls a day, whoever is calling.
+
 Every request writes one JSON line to stdout for Log Analytics. The query text is never
 logged; the line carries status, latency, cost, tokens, model, guardrail outcome and the
 revision that served it.
@@ -49,7 +56,7 @@ The same test rows run two ways:
 
 ```bash
 bun install
-bun run test            # 93 unit tests, no network
+bun run test            # 102 unit tests, no network
 cp .env.example .env    # add your OpenRouter key
 bun run start           # http://localhost:8080
 
@@ -80,10 +87,11 @@ ASSISTANT_URL=http://localhost:8080 bun run eval:smoke:http
 
 | Module | Resource | Notes |
 |---|---|---|
-| `logging` | Log Analytics workspace | PerGB2018, 30 days dev, 90 prod |
+| `logging` | Log Analytics workspace | PerGB2018, 30 days dev, 90 prod, ingestion capped at 0.2 GB a day |
 | `identity` | User-assigned managed identity | the only principal that can read the secret |
 | `keyvault` | Key Vault, RBAC authorisation | soft delete on; purge protection is a parameter; Secrets User role bound to the identity inside the template |
 | `environment` | Container Apps managed environment | consumption plan, logs to the workspace |
+| `budget` | Monthly cost budget on the resource group | alerts at 50, 80 and 100 percent actual and 100 percent forecast; created only when the `BUDGET_EMAIL` environment variable is set in GitHub, so no address is committed. A budget alerts; it never stops spending |
 | `app` | Container App, Multiple revisions mode | ingress 8080, scale 0 to 2, probes on `/healthz` and `/readyz`, secret is a `keyVaultUrl` reference resolved by the identity |
 
 The OpenRouter key is written to the vault once by hand (`scripts/phase2-seed-secret.sh`).
@@ -116,7 +124,7 @@ runs it on every pull request (no deploy) and on every push to `main` (deploy to
 
 | Stage | What runs | Fails on |
 |---|---|---|
-| quality | eslint, tsc, vitest (93 tests); ruff and pytest over `pipeline/` (16 tests) | anything |
+| quality | eslint, tsc, vitest (102 tests); ruff and pytest over `pipeline/` (16 tests) | anything |
 | secrets-scan | gitleaks over the history; `.gitleaks.toml` allowlists the fake keys the output-guard tests feed to `filterOutput` | any leak |
 | codeql | JavaScript/TypeScript and Python | runs once the repository is public (private repositories need Advanced Security) |
 | dependency-audit | `bun audit` at high; `pip-audit` over the uv lockfile | any high or critical with a fix; two `extract-zip` advisories are ignored by id (dev-only, reached through promptfoo, no fixed release, not in the image) |

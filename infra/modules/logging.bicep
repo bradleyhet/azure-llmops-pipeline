@@ -3,6 +3,8 @@
 param name string
 param location string
 param retentionDays int
+@description('Daily ingestion cap in GB, as a string because Bicep has no decimal literals. Ingestion stops for the rest of the UTC day once it is reached.')
+param dailyQuotaGb string
 param tags object
 
 resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
@@ -14,6 +16,9 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
       name: 'PerGB2018'
     }
     retentionInDays: retentionDays
+    workspaceCapping: {
+      dailyQuotaGb: json(dailyQuotaGb)
+    }
     features: {
       enableLogAccessUsingOnlyResourcePermissions: true
     }

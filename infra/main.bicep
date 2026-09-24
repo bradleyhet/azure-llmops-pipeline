@@ -46,6 +46,16 @@ param purgeProtection bool = false
 @maxValue(730)
 param logRetentionDays int = 30
 
+@description('Log Analytics daily ingestion cap in GB, as a string such as 0.2. Normal traffic writes well under 1 MB a day; the cap only matters under a flood of requests.')
+param logDailyQuotaGb string = '0.2'
+
+@description('Monthly budget for the resource group, in the billing currency.')
+@minValue(1)
+param budgetAmount int = 20
+
+@description('Address the budget alerts go to. Empty skips the budget; the pipeline passes the BUDGET_EMAIL environment variable so no address is committed.')
+param budgetEmail string = ''
+
 @description('Set false on the very first deploy of an environment, before the Key Vault secret exists.')
 param deployApp bool = true
 
@@ -66,7 +76,17 @@ module logging 'modules/logging.bicep' = {
     name: 'log-llmops-${environmentName}'
     location: location
     retentionDays: logRetentionDays
+    dailyQuotaGb: logDailyQuotaGb
     tags: tags
+  }
+}
+
+module budget 'modules/budget.bicep' = if (!empty(budgetEmail)) {
+  name: 'budget'
+  params: {
+    name: 'budget-llmops-${environmentName}'
+    amount: budgetAmount
+    contactEmails: [budgetEmail]
   }
 }
 

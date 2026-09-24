@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createApp, toAskResponse, type AppConfig, type AskResponse } from "../src/app.js";
+import { createApp, MAX_BODY_BYTES, toAskResponse, type AppConfig, type AskResponse } from "../src/app.js";
 import { answer } from "../src/assistant/answer.js";
 import { REFUSAL_MESSAGE } from "../src/assistant/guardrails.js";
 import type { ChatRequest, ChatResponse, LlmClient } from "../src/assistant/openrouter.js";
@@ -182,6 +182,42 @@ describe("POST /ask answers", () => {
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: "upstream model error", detail: "OpenRouter error 429: rate limited" });
     expect(logs[0]).toMatchObject({ status: 502, error: "OpenRouter error 429: rate limited" });
+  });
+});
+
+describe("POST /ask limits", () => {
+  const ask = { query: "Everyday fee?", customerId: "cust_001" };
+
+  it("refuses a body over the size cap with 413 before parsing it", async () => {
+    const llm = scripted([]);
+    const { app } = build(llm);
+    const res = await app.fetch(post("/ask", { ...ask, query: "x".repeat(MAX_BODY_BYTES) }));
+    expect(res.status).toBe(413);
+    expect(llm.requests).toHaveLength(0);
+  });
+
+  it("answers 429 with Retry-After once a client passes its per-minute limit, counting invalid requests too", async () => {
+    const llm = scripted([text("No monthly fee.")]);
+    const { app, logs } = build(llm, { rateLimit: { perClientPerMinute: 2, perDay: 0 }, now: () => Date.UTC(2026, 8, 24, 3, 0, 15) });
+    expect((await app.fetch(post("/ask", "not json"))).status).toBe(400);
+    expect((await app.fetch(post("/ask", ask))).status).toBe(200);
+    const res = await app.fetch(post("/ask", ask));
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("45");
+    expect(await res.json()).toEqual({ error: "rate limited", limit: "client", retryAfterSeconds: 45 });
+    expect(llm.requests).toHaveLength(1);
+    expect(logs.at(-1)).toMatchObject({ status: 429, limited: "client" });
+  });
+
+  it("spends the daily limit only on valid requests that would reach the model", async () => {
+    const llm = scripted([text("No monthly fee.")]);
+    const { app } = build(llm, { rateLimit: { perClientPerMinute: 0, perDay: 1 } });
+    expect((await app.fetch(post("/ask", { query: "" }))).status).toBe(400);
+    expect((await app.fetch(post("/ask", ask))).status).toBe(200);
+    const res = await app.fetch(post("/ask", ask));
+    expect(res.status).toBe(429);
+    expect(await res.json()).toMatchObject({ limit: "daily" });
+    expect(llm.requests).toHaveLength(1);
   });
 });
 

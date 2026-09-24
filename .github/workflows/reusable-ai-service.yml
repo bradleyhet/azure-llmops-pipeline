@@ -338,6 +338,7 @@ jobs:
         env:
           IMAGE: ${{ needs.build.outputs.image }}
           GIT_SHA: ${{ github.sha }}
+          BUDGET_EMAIL: ${{ vars.BUDGET_EMAIL }}
           REVISION_SUFFIX: ${{ needs.build.outputs.short-sha }}
           DEPLOY_APP: "true"
         run: |
@@ -401,6 +402,7 @@ jobs:
         env:
           IMAGE: ${{ needs.build.outputs.image }}
           GIT_SHA: ${{ github.sha }}
+          BUDGET_EMAIL: ${{ vars.BUDGET_EMAIL }}
           ACTIVE_REVISION: ${{ steps.current.outputs.previous-revision }}
           REVISION_SUFFIX: ${{ steps.current.outputs.suffix }}
           DEPLOY_APP: "true"

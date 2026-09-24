@@ -124,12 +124,12 @@ runs it on every pull request (no deploy) and on every push to `main` (deploy to
 
 | Stage | What runs | Fails on |
 |---|---|---|
-| quality | eslint, tsc, vitest (102 tests); ruff and pytest over `pipeline/` (16 tests) | anything |
+| quality | eslint, tsc, vitest (102 tests); ruff and pytest over `pipeline/` (20 tests) | anything |
 | secrets-scan | gitleaks over the history; `.gitleaks.toml` allowlists the fake keys the output-guard tests feed to `filterOutput` | any leak |
 | codeql | JavaScript/TypeScript and Python | runs once the repository is public (private repositories need Advanced Security) |
 | dependency-audit | `bun audit` at high; `pip-audit` over the uv lockfile | any high or critical with a fix; two `extract-zip` advisories are ignored by id (dev-only, reached through promptfoo, no fixed release, not in the image) |
 | iac-scan | Checkov on `infra/`, bicep framework | any failed check |
-| eval-gate | promptfoo smoke tier in-process, 30 cases, responses cached on config, evals, src and corpus | pass rate under 0.95, p95 over 4 s, cost per case over 0.01 USD |
+| eval-gate | promptfoo smoke tier in-process, 30 cases, responses cached on config, evals, src and corpus | pass rate under 0.95 (rows marked `known_failure` excluded), p50 over 2.5 s, p95 over 10 s, cost per case over 0.01 USD |
 | build | buildx to `ghcr.io/bradleyhet/corella-assistant:<sha>` with SBOM and provenance attestations; Trivy HIGH and CRITICAL with `--ignore-unfixed`; the `:main` tag is applied only after the scan | any fixable HIGH or CRITICAL |
 | deploy | `az deployment group what-if`, then `create` with the new image, `revisionSuffix` set to the short sha and traffic pinned to the revision that already holds it, so the new revision starts at 0 percent | deployment error, or a revision not named `corella-assistant--<sha>` |
 | verify-canary | `verify-revision` polls `https://corella-assistant--<sha>.<env>/readyz` and checks `/version`; promptfoo smoke tier over HTTP at that URL; `parse-results` applies the same thresholds as the gate and writes the table to the job summary | thresholds |

@@ -6,6 +6,12 @@ writes a markdown table (appended to ``$GITHUB_STEP_SUMMARY`` when that is set) 
 non-zero on any breach. The same scorer runs on the in-process eval gate, the canary and the
 nightly run, so all three are judged by one rule.
 
+Rows marked ``known_failure: true`` in their metadata are documented gaps, not regressions:
+they are left out of the pass rate and listed apart, and one that starts passing is flagged
+so the marker gets removed. Latency is gated twice. p50 catches a slowdown that touches
+every case; p95 is loose because over 30 cases it is the second-slowest call, and one slow
+model response upstream should not fail a deploy.
+
 Exit codes: 0 all thresholds met, 1 at least one breached, 2 the file could not be scored.
 """
 
@@ -24,7 +30,8 @@ class Thresholds(BaseModel):
     """Limits a run must meet. The defaults are the canary gate."""
 
     min_pass_rate: float = Field(default=0.95, ge=0, le=1)
-    max_p95_latency_ms: float = Field(default=4000, gt=0)
+    max_p50_latency_ms: float = Field(default=2500, gt=0)
+    max_p95_latency_ms: float = Field(default=10000, gt=0)
     max_mean_cost_usd: float = Field(default=0.01, gt=0)
 
 
@@ -36,6 +43,7 @@ class CaseResult(BaseModel):
     tier: str
     success: bool
     error: bool
+    known_failure: bool = False
     latency_ms: float
     cost_usd: float
     blocked_by: str | None = None
@@ -45,6 +53,10 @@ class CaseResult(BaseModel):
 
 class Metrics(BaseModel):
     cases: int
+    #: Rows marked known_failure; excluded from passed, failed and pass_rate.
+    known_failures: int = 0
+    #: Known-failure rows that passed this run, so their marker can be removed.
+    known_failures_passing: list[str] = Field(default_factory=list)
     passed: int
     failed: int
     errors: int
@@ -103,12 +115,17 @@ def extract_case(row: dict[str, Any]) -> CaseResult:
     grading = row.get("gradingResult") or {}
     error = row.get("error")
     reason = str(error or grading.get("reason") or "")
+    # promptfoo also fills `error` when an assertion fails; failureReason tells them apart
+    # (1 assertion failed, 2 the call itself errored). Older files may not carry it.
+    failure_reason = row.get("failureReason")
+    errored = failure_reason == 2 or (failure_reason != 1 and bool(error))
     return CaseResult(
         id=str(meta.get("id") or row.get("id") or f"row-{row.get('testIdx', '?')}"),
         category=str(meta.get("category") or "unknown"),
         tier=str(meta.get("tier") or "unknown"),
         success=bool(row.get("success")),
-        error=bool(error),
+        error=errored,
+        known_failure=meta.get("known_failure") is True,
         latency_ms=float(row.get("latencyMs") or 0),
         cost_usd=float(row.get("cost") or 0),
         blocked_by=response_meta.get("blockedBy"),
@@ -121,16 +138,21 @@ def compute_metrics(
     cases: list[CaseResult], *, eval_id: str | None = None, timestamp: str | None = None
 ) -> Metrics:
     n = len(cases)
-    passed = sum(1 for c in cases if c.success)
+    gated = [c for c in cases if not c.known_failure]
+    known = [c for c in cases if c.known_failure]
+    passed = sum(1 for c in gated if c.success)
     errors = sum(1 for c in cases if c.error)
+    # Every row was a real request, so latency and cost count all of them.
     latencies = [c.latency_ms for c in cases]
     total_cost = sum(c.cost_usd for c in cases)
     return Metrics(
         cases=n,
+        known_failures=len(known),
+        known_failures_passing=[c.id for c in known if c.success],
         passed=passed,
-        failed=n - passed,
+        failed=len(gated) - passed,
         errors=errors,
-        pass_rate=(passed / n) if n else 0.0,
+        pass_rate=(passed / len(gated)) if gated else 0.0,
         p50_latency_ms=percentile(latencies, 50),
         p95_latency_ms=percentile(latencies, 95),
         mean_cost_usd=(total_cost / n) if n else 0.0,
@@ -161,6 +183,15 @@ def evaluate(
                 rule="at or above",
             )
         )
+    if metrics.p50_latency_ms > thresholds.max_p50_latency_ms:
+        breaches.append(
+            Breach(
+                metric="p50_latency_ms",
+                actual=metrics.p50_latency_ms,
+                limit=thresholds.max_p50_latency_ms,
+                rule="at or below",
+            )
+        )
     if metrics.p95_latency_ms > thresholds.max_p95_latency_ms:
         breaches.append(
             Breach(
@@ -184,7 +215,7 @@ def evaluate(
         metrics=metrics,
         thresholds=thresholds,
         breaches=breaches,
-        failed_cases=[c for c in cases if not c.success],
+        failed_cases=[c for c in cases if not c.success and not c.known_failure],
     )
 
 
@@ -195,15 +226,18 @@ def _mark(ok: bool) -> str:
 def render_markdown(verdict: Verdict) -> str:
     m, t = verdict.metrics, verdict.thresholds
     breached = {b.metric for b in verdict.breaches}
+    gated = m.cases - m.known_failures
+    known_note = f", {m.known_failures} known failures excluded" if m.known_failures else ""
     lines = [
         f"### {verdict.label}",
         "",
         "| Metric | Value | Threshold | Result |",
         "|---|---|---|---|",
         f"| Cases | {m.cases} ({', '.join(m.tiers) or 'no tier'}) | | |",
-        f"| Pass rate | {m.pass_rate:.1%} ({m.passed}/{m.cases}) "
+        f"| Pass rate | {m.pass_rate:.1%} ({m.passed}/{gated}{known_note}) "
         f"| at or above {t.min_pass_rate:.0%} | {_mark('pass_rate' not in breached)} |",
-        f"| p50 latency | {m.p50_latency_ms:.0f} ms | | |",
+        f"| p50 latency | {m.p50_latency_ms:.0f} ms | at or below {t.max_p50_latency_ms:.0f} ms "
+        f"| {_mark('p50_latency_ms' not in breached)} |",
         f"| p95 latency | {m.p95_latency_ms:.0f} ms | at or below {t.max_p95_latency_ms:.0f} ms "
         f"| {_mark('p95_latency_ms' not in breached)} |",
         f"| Cost per case | {m.mean_cost_usd:.5f} USD | at or below {t.max_mean_cost_usd:.3f} USD "
@@ -227,6 +261,12 @@ def render_markdown(verdict: Verdict) -> str:
         for c in verdict.failed_cases:
             reason = c.reason.replace("|", "\\|")[:160]
             lines.append(f"| {c.id} | {c.category} | {c.blocked_by or ''} | {reason} |")
+    if m.known_failures_passing:
+        lines += [
+            "",
+            "Known failures that passed this run (remove `known_failure` if it holds): "
+            + ", ".join(m.known_failures_passing),
+        ]
     lines.append("")
     return "\n".join(lines)
 
@@ -250,6 +290,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--label", default="Eval results", help="heading for the summary table")
     defaults = Thresholds()
     parser.add_argument("--min-pass-rate", type=float, default=defaults.min_pass_rate)
+    parser.add_argument("--max-p50-ms", type=float, default=defaults.max_p50_latency_ms)
     parser.add_argument("--max-p95-ms", type=float, default=defaults.max_p95_latency_ms)
     parser.add_argument("--max-mean-cost", type=float, default=defaults.max_mean_cost_usd)
     parser.add_argument(
@@ -279,6 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     cases = [extract_case(r) for r in rows if isinstance(r, dict)]
     thresholds = Thresholds(
         min_pass_rate=args.min_pass_rate,
+        max_p50_latency_ms=args.max_p50_ms,
         max_p95_latency_ms=args.max_p95_ms,
         max_mean_cost_usd=args.max_mean_cost,
     )

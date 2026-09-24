@@ -62,6 +62,8 @@ def test_each_threshold_breaches_independently(smoke_data: dict) -> None:
     cases = cases_from(smoke_data)
     tight_latency = evaluate(cases, Thresholds(max_p95_latency_ms=2000), "l")
     assert [b.metric for b in tight_latency.breaches] == ["p95_latency_ms"]
+    tight_median = evaluate(cases, Thresholds(max_p50_latency_ms=1000), "m")
+    assert [b.metric for b in tight_median.breaches] == ["p50_latency_ms"]
     tight_cost = evaluate(cases, Thresholds(max_mean_cost_usd=0.0001), "c")
     assert [b.metric for b in tight_cost.breaches] == ["mean_cost_usd"]
 
@@ -91,7 +93,8 @@ def test_markdown_table_shape(smoke_data: dict) -> None:
     md = render_markdown(evaluate(cases_from(smoke_data), Thresholds(), "Canary abc"))
     assert md.startswith("### Canary abc\n")
     assert "| Pass rate | 100.0% (30/30) | at or above 95% | pass |" in md
-    assert "| p95 latency | 2595 ms | at or below 4000 ms | pass |" in md
+    assert "| p50 latency | 1277 ms | at or below 2500 ms | pass |" in md
+    assert "| p95 latency | 2595 ms | at or below 10000 ms | pass |" in md
     assert "**Result: pass. Every threshold met.**" in md
     assert "Failed case" not in md
 
@@ -132,3 +135,40 @@ def test_cli_exit_codes(smoke_path: Path, tmp_path: Path) -> None:
     bogus.write_text("[]", encoding="utf-8")
     assert main([str(bogus), "--summary", ""]) == 2
     assert main([str(tmp_path / "missing.json"), "--summary", ""]) == 2
+
+
+def test_known_failures_are_excluded_from_the_pass_rate(smoke_data: dict) -> None:
+    rows = smoke_data["results"]["results"]
+    # The nightly on 2026-09-23: 4 known failures plus 2 real ones. Here 4 known, 1 real.
+    for row in rows[:4]:
+        row["testCase"]["metadata"]["known_failure"] = True
+        row["success"] = False
+        row["failureReason"] = 1
+    rows[4]["success"] = False
+    rows[4]["failureReason"] = 1
+    verdict = evaluate(cases_from(smoke_data), Thresholds(), "nightly")
+    m = verdict.metrics
+    assert (m.cases, m.known_failures, m.passed, m.failed) == (30, 4, 25, 1)
+    assert m.pass_rate == pytest.approx(25 / 26)
+    assert verdict.passed
+    assert [c.id for c in verdict.failed_cases] == [rows[4]["testCase"]["metadata"]["id"]]
+    md = render_markdown(verdict)
+    assert "| Pass rate | 96.2% (25/26, 4 known failures excluded) |" in md
+
+
+def test_a_known_failure_that_passes_is_flagged(smoke_data: dict) -> None:
+    row = smoke_data["results"]["results"][0]
+    row["testCase"]["metadata"]["known_failure"] = True
+    verdict = evaluate(cases_from(smoke_data), Thresholds(), "nightly")
+    assert verdict.metrics.known_failures_passing == [row["testCase"]["metadata"]["id"]]
+    assert "Known failures that passed this run" in render_markdown(verdict)
+
+
+def test_assertion_failures_are_not_counted_as_errors(smoke_data: dict) -> None:
+    rows = smoke_data["results"]["results"]
+    # promptfoo sets `error` on a failed assertion as well; failureReason 1 means assertion.
+    rows[0].update(success=False, error="Recall 0.00 is < 0.7", failureReason=1)
+    rows[1].update(success=False, error="Provider call failed", failureReason=2)
+    metrics = compute_metrics(cases_from(smoke_data))
+    assert metrics.errors == 1
+    assert metrics.failed == 2

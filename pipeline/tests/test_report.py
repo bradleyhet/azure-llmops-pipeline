@@ -50,3 +50,33 @@ def test_bad_metrics_file_exits_2(tmp_path: Path) -> None:
     assert main(["--metrics", str(bad), "--environment", "dev", "--tier", "full"]) == 2
     missing = str(tmp_path / "nope")
     assert main(["--metrics", missing, "--environment", "dev", "--tier", "full"]) == 2
+
+
+def test_row_shows_known_failures_excluded(tmp_path: Path) -> None:
+    metrics = tmp_path / "metrics.json"
+    metrics.write_text(
+        json.dumps(
+            {
+                "metrics": {
+                    "cases": 95,
+                    "known_failures": 4,
+                    "passed": 90,
+                    "failed": 1,
+                    "errors": 0,
+                    "pass_rate": 90 / 91,
+                    "p50_latency_ms": 1409,
+                    "p95_latency_ms": 2684,
+                    "mean_cost_usd": 0.0004,
+                    "total_cost_usd": 0.038,
+                    "revisions": ["corella-assistant--abc"],
+                    "tiers": ["full", "smoke"],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    out = tmp_path / "results.md"
+    args = ["--metrics", str(metrics), "--out", str(out), "--environment", "dev", "--tier", "full"]
+    assert main([*args, "--date", "2026-09-25 18:00"]) == 0
+    row = "| 95 | 98.9% (90/91, 4 known excluded) | 1409 | 2684 |"
+    assert row in out.read_text(encoding="utf-8")

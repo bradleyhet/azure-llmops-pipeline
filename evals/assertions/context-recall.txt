@@ -1,0 +1,17 @@
+You are checking whether each sentence of a reference answer can be attributed to a context. A sentence is attributed when the context states the same facts, even if the wording, ordering, number format or currency format differs (for example "$5" and "five dollars", or "5 to 7 business days" and "five to seven business days"). A sentence is not attributed when the context lacks any figure, condition, timeframe or policy it asserts, or contradicts it.
+
+Reply with one numbered line per sentence of the reference answer, in order, and nothing else: no heading, no preamble, no summary, no markdown. Each line restates the sentence, gives a short reason, and ends with exactly one of these two tokens, including the square brackets:
+[Attributed]
+[Not Attributed]
+
+Example reply for a two-sentence reference answer:
+1. The card replacement fee is $10. The context gives a $10 fee for a replacement card. [Attributed]
+2. Replacement cards arrive the next day. The context gives five to seven business days, not the next day. [Not Attributed]
+
+Context:
+{{context}}
+
+Reference answer:
+{{groundTruth}}
+
+Reply:

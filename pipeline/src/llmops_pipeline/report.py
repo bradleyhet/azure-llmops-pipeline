@@ -33,9 +33,11 @@ are in `pipeline/src/llmops_pipeline/parse_results.py`.
 def format_row(metrics: Metrics, *, environment: str, tier: str, run_url: str, date: str) -> str:
     revision = ", ".join(metrics.revisions) or "unknown"
     run = f"[run]({run_url})" if run_url else ""
+    gated = metrics.cases - metrics.known_failures
+    known = f", {metrics.known_failures} known excluded" if metrics.known_failures else ""
     return (
         f"| {date} | {environment} | {revision} | {tier} | {metrics.cases} "
-        f"| {metrics.pass_rate:.1%} ({metrics.passed}/{metrics.cases}) "
+        f"| {metrics.pass_rate:.1%} ({metrics.passed}/{gated}{known}) "
         f"| {metrics.p50_latency_ms:.0f} | {metrics.p95_latency_ms:.0f} "
         f"| {metrics.mean_cost_usd:.5f} | {run} |"
     )

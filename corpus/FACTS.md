@@ -18,7 +18,7 @@ Every concrete fact in the corpus, the value the corpus gives it, and the chunk 
 | Saver has a card | No; money moves only via linked Everyday | account-types#saver-account, direct-debits#setting-up-a-direct-debit |
 | Joint Everyday monthly fee | Single $5 fee shared, same $1,000 waiver | account-types#joint-everyday-account, joint-accounts#cards-and-fees-on-a-joint-account |
 | Joint account holders | Exactly two, both already verified customers | joint-accounts#opening-a-joint-account, account-types#joint-everyday-account |
-| Joint signing rules | Either-to-sign default; both-to-sign for transfers over $2,000 | joint-accounts#signing-rules, account-types#joint-everyday-account |
+| Joint signing rules | Either-to-sign by default; holders can opt into both-to-sign for transfers over $2,000 | joint-accounts#signing-rules, account-types#joint-everyday-account |
 | Joint Saver | Not offered | account-types#joint-everyday-account, joint-accounts#opening-a-joint-account |
 | Minimum age | 16 | account-types#who-can-open-an-account, opening-an-account#what-you-need-before-you-start |
 | Residency | Australian resident with Australian residential address and mobile number | account-types#who-can-open-an-account, opening-an-account#what-you-need-before-you-start |

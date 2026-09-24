@@ -710,7 +710,7 @@
   vars:
     query: "On a joint account, do both of us have to approve every transfer?"
     customerId: cust_002
-    expected: "The default is either-to-sign, but transfers over $2,000 need both holders to approve."
+    expected: "The default is either-to-sign, so either holder can transfer alone. The holders can switch to both-to-sign, after which transfers over $2,000 need both to approve."
   metadata:
     id: gr-036
     category: grounded
@@ -722,7 +722,7 @@
     - type: icontains-any
       value: [ "$2,000", "$2000", "2,000 dollars" ]
     - type: llm-rubric
-      value: Explains either-to-sign by default with both-to-sign required over $2,000. Does not invent a different threshold.
+      value: Says the default is either-to-sign, so either holder can transfer without the other. Explains that both-to-sign for transfers over $2,000 is an option the holders can switch on, not the default. Does not invent a different threshold.
 
 - description: closing a sole account
   vars:

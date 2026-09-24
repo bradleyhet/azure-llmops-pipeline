@@ -24,9 +24,12 @@ defaultTest:
     # The provider returns { answer, context, trace }. Assertions see the answer string;
     # RAG graders use contextTransform to reach the raw output's context array.
     transform: output.answer
+    # Judge: gpt-4.1-mini (switched from claude-sonnet-5 on 2026-09-24 for cost). Re-grading
+    # the 95 saved nightly responses agreed with Sonnet on 158 of 163 judged assertions;
+    # gpt-oss-120b was cheaper but wrong on a different 3 or 4 correct answers each run.
     provider:
       text:
-        id: openrouter:anthropic/claude-sonnet-5
+        id: openrouter:openai/gpt-4.1-mini
         config:
           temperature: 0
           max_tokens: 1024

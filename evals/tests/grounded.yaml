@@ -636,7 +636,7 @@
     - type: icontains-any
       value: [ "$7.50", "7.50 dollars" ]
     - type: llm-rubric
-      value: Says the direct debit is dishonoured and a $7.50 fee applies. May mention low balance alerts or automatic top up as prevention.
+      value: Says the direct debit is dishonoured and a $7.50 fee applies. Mentioning low balance alerts or automatic top up as prevention is welcome but not required.
 
 - description: direct debit cancellation fee
   vars:

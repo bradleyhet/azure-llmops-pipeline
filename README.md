@@ -52,6 +52,14 @@ The same test rows run two ways:
   verifier and the nightly run use. `src/eval/http-transform.ts` reshapes the wire body into
   the in-process provider's output, and a unit test asserts the two agree field for field.
 
+The judge behind the faithfulness, recall and rubric assertions is `openai/gpt-4.1-mini` through
+OpenRouter. It replaced `claude-sonnet-5` on 2026-09-24 because the judge, not the assistant,
+was most of the eval bill. Before switching, the 95 saved responses of a Sonnet-graded nightly
+were re-graded without calling the app: gpt-4.1-mini agreed on 158 of 163 judged assertions and
+repeated its own verdicts on 162 of 163. `gpt-oss-120b` was tried first and was cheaper still,
+but failed three or four correct answers per run, a different set each time, which a 0.95 gate
+over 30 cases cannot absorb.
+
 ### Run it locally
 
 ```bash

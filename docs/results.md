@@ -35,3 +35,4 @@ are in `pipeline/src/llmops_pipeline/parse_results.py`.
 | 2026-10-13 22:24 | dev | corella-assistant--97220c2 | full | 95 | 15.4% (14/91, 4 known excluded) | 234 | 1306 | 0.00000 | [run](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/38477290294) |
 | 2026-10-14 21:22 | dev | corella-assistant--97220c2 | full | 95 | 15.4% (14/91, 4 known excluded) | 221 | 843 | 0.00000 | [run](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/38639487581) |
 | 2026-10-15 21:02 | dev | corella-assistant--97220c2 | full | 95 | 15.4% (14/91, 4 known excluded) | 181 | 722 | 0.00000 | [run](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/38806420027) |
+| 2026-10-16 20:38 | dev | corella-assistant--97220c2 | full | 95 | 15.4% (14/91, 4 known excluded) | 195 | 875 | 0.00000 | [run](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/38963316966) |

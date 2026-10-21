@@ -3,7 +3,7 @@
     eval-report --metrics results/full-metrics.json --out docs/results.md \\
         --environment dev --tier full --run-url https://github.com/.../actions/runs/123
 
-``--metrics`` is the JSON that ``parse-results --metrics-out`` wrote. The nightly workflow
+``--metrics`` is the JSON that ``parse-results --metrics-out`` wrote. The weekly workflow
 commits the updated file, so the table is a record of every run, never edited by hand.
 """
 
@@ -24,7 +24,7 @@ INTRO = """# Eval results
 
 One row per eval run over HTTP against a deployed revision, appended by `eval-report`
 (`pipeline/src/llmops_pipeline/report.py`) and committed by the workflow that ran it. The
-nightly run covers the full tier against whichever dev revision holds traffic. Thresholds
+weekly run covers the full tier against whichever dev revision holds traffic. Thresholds
 are in `pipeline/src/llmops_pipeline/parse_results.py`.
 
 """

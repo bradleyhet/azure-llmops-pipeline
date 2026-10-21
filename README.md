@@ -49,7 +49,7 @@ The same test rows run two ways:
 - `promptfooconfig.yaml` calls `answer()` in-process. This is the pull-request gate; no
   deployment needed.
 - `promptfooconfig.http.yaml` posts to `${ASSISTANT_URL}/ask`. This is what the canary
-  verifier and the nightly run use. `src/eval/http-transform.ts` reshapes the wire body into
+  verifier and the weekly full run use. `src/eval/http-transform.ts` reshapes the wire body into
   the in-process provider's output, and a unit test asserts the two agree field for field.
 
 The judge behind the faithfulness, recall and rubric assertions is `openai/gpt-4.1-mini` through
@@ -127,7 +127,8 @@ The app definition stores only the vault URL:
 `.github/workflows/reusable-ai-service.yml` is one `workflow_call` workflow. `assistant-dev.yml`
 runs it on every pull request (no deploy) and on every push to `main` (deploy to
 `rg-llmops-dev`); `assistant-prod.yml` runs the same file on a `v*` tag against
-`rg-llmops-prod`. `nightly.yml` runs the full tier over HTTP against dev and appends a row to
+`rg-llmops-prod`. `nightly.yml` runs the full tier over HTTP against dev once a week (Monday 02:00 Perth;
+nightly until 2026-10-21) and appends a row to
 [`docs/results.md`](docs/results.md). The Python side lives in [`pipeline/`](pipeline/README.md).
 
 | Stage | What runs | Fails on |

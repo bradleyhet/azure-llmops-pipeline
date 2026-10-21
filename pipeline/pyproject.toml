@@ -1,7 +1,7 @@
 [project]
 name = "llmops-pipeline"
 version = "0.1.0"
-description = "Python tooling for the Corella assistant pipeline: canary readiness, promptfoo result scoring, nightly report rows"
+description = "Python tooling for the Corella assistant pipeline: canary readiness, promptfoo result scoring, full-run report rows"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"

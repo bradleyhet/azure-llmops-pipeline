@@ -1,4 +1,4 @@
-name: Nightly full eval (dev)
+name: Weekly full eval (dev)
 
 # Runs every test tier over HTTP against whichever dev revision holds traffic, scores it with
 # the same thresholds as the canary, appends a row to docs/results.md and commits it. A push
@@ -6,7 +6,7 @@ name: Nightly full eval (dev)
 
 on:
   schedule:
-    - cron: "0 18 * * *" # 02:00 Australia/Perth
+    - cron: "0 18 * * 0" # Sunday 18:00 UTC, Monday 02:00 Australia/Perth. Weekly since 2026-10-21 (cost)
   workflow_dispatch:
 
 permissions:
@@ -78,7 +78,7 @@ jobs:
         continue-on-error: true
         run: >
           uv run --project pipeline parse-results results/full-http.json
-          --label "Nightly full tier, ${{ steps.target.outputs.revision }}"
+          --label "Weekly full tier, ${{ steps.target.outputs.revision }}"
           --metrics-out results/full-metrics.json
       - name: Append the row to docs/results.md and commit it
         run: |
@@ -90,7 +90,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/results.md
-          git commit -m "nightly: full-tier results for $(date -u +%Y-%m-%d) [skip ci]"
+          git commit -m "weekly: full-tier results for $(date -u +%Y-%m-%d) [skip ci]"
           git push origin HEAD:main
       - uses: actions/upload-artifact@v7
         if: always()
@@ -100,5 +100,5 @@ jobs:
       - name: Fail the run if a threshold was breached
         if: steps.score.outcome != 'success'
         run: |
-          echo "::error::nightly full tier breached a threshold; see the summary and docs/results.md"
+          echo "::error::weekly full tier breached a threshold; see the summary and docs/results.md"
           exit 1

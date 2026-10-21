@@ -4,9 +4,9 @@ Python tooling the GitHub Actions pipeline runs; the assistant itself stays Type
 
 | Command | Used by | Does |
 |---|---|---|
-| `verify-revision` | `verify-canary`, nightly | polls a revision's own URL until `/readyz` answers from the expected revision, then checks `/version` carries the expected git sha |
-| `parse-results` | eval gate, canary, nightly | scores a promptfoo results file: pass rate, p50 and p95 latency, cost per case; writes the table to the step summary; non-zero exit on a threshold breach |
-| `eval-report` | nightly | appends one row to `docs/results.md` |
+| `verify-revision` | `verify-canary`, weekly full run | polls a revision's own URL until `/readyz` answers from the expected revision, then checks `/version` carries the expected git sha |
+| `parse-results` | eval gate, canary, weekly full run | scores a promptfoo results file: pass rate, p50 and p95 latency, cost per case; writes the table to the step summary; non-zero exit on a threshold breach |
+| `eval-report` | weekly full run | appends one row to `docs/results.md` |
 
 ```bash
 uv sync --locked

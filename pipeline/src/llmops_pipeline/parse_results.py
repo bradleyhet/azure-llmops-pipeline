@@ -4,7 +4,7 @@ Reads the JSON that ``promptfoo eval -o results/<name>.json`` writes, computes p
 latency percentiles and cost per case over the test rows, compares them with the thresholds,
 writes a markdown table (appended to ``$GITHUB_STEP_SUMMARY`` when that is set) and exits
 non-zero on any breach. The same scorer runs on the in-process eval gate, the canary and the
-nightly run, so all three are judged by one rule.
+weekly full run, so all three are judged by one rule.
 
 Rows marked ``known_failure: true`` in their metadata are documented gaps, not regressions:
 they are left out of the pass rate and listed apart, and one that starts passing is flagged

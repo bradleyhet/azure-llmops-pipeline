@@ -175,12 +175,14 @@ describe("POST /ask answers", () => {
     expect(llm.requests[0]?.messages.map((m) => m.role)).toEqual(["system", "user"]);
   });
 
-  it("maps an upstream model failure to 502 and logs the error", async () => {
+  it("maps an upstream model failure to 502, logs the error and keeps it out of the reply", async () => {
     const llm: LlmClient = { chat: async () => { throw new Error("OpenRouter error 429: rate limited"); } };
     const { app, logs } = build(llm);
     const res = await app.fetch(post("/ask", { query: "Everyday fee?", customerId: "cust_001" }));
     expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ error: "upstream model error", detail: "OpenRouter error 429: rate limited" });
+    const raw = await res.text();
+    expect(JSON.parse(raw)).toEqual({ error: "upstream model error" });
+    expect(raw).not.toContain("OpenRouter");
     expect(logs[0]).toMatchObject({ status: 502, error: "OpenRouter error 429: rate limited" });
   });
 });

@@ -190,8 +190,10 @@ export function createApp(config: AppConfig): App {
         },
       );
     } catch (err) {
+      // The upstream error text goes to the log only. The caller is anonymous, and the text can
+      // carry provider and account detail that is no business of theirs.
       const detail = err instanceof Error ? err.message : String(err);
-      return { res: json(502, { error: "upstream model error", detail }), extra: { customerId, error: detail } };
+      return { res: json(502, { error: "upstream model error" }), extra: { customerId, error: detail } };
     }
 
     const body = toAskResponse(result, customerId, revision);

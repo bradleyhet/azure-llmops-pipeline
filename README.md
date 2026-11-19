@@ -44,7 +44,8 @@ dev resource group (environment, Key Vault, identity, workspace) is still in pla
 client gets 60 requests a minute and each replica 2000 model-bound requests a UTC day, both
 answered with 429 and `Retry-After` (`ASK_PER_CLIENT_PER_MINUTE`, `ASK_PER_DAY`). The client is
 the last `X-Forwarded-For` entry, the one the ingress appends. The daily count is the cost
-ceiling: at most `maxReplicas` times 2000 model calls a day, whoever is calling.
+ceiling: at most `maxReplicas` times 2000 model calls a day, whoever is calling. A model
+failure is answered with a bare 502; the provider's error text goes to the log, not the caller.
 
 Every request writes one JSON line to stdout for Log Analytics. The query text is never
 logged; the line carries status, latency, cost, tokens, model, guardrail outcome and the

@@ -163,10 +163,17 @@ nightly until 2026-10-21) and appends a row to
 | promote | `az containerapp ingress traffic set <new>=100`, previous revision deactivated, app FQDN checked to answer from the new revision | |
 | rollback | on a verify failure the new revision is deactivated; traffic was never moved | |
 
-Azure login is `azure/login` with the federated credential. `gh secret list` shows only
-`OPENROUTER_API_KEY`, which the eval jobs need on the runner.
+Azure login is `azure/login` with the federated credential. The only credential in GitHub is
+`OPENROUTER_API_KEY`, which the eval jobs need on the runner. The Azure client, tenant and
+subscription ids are also stored as environment secrets, to keep them out of the logs; they
+are identifiers, not credentials.
 
-### Phase 3 results (2026-09-23, [run 35849205060](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/35849205060))
+The repository was recreated on 2026-11-19 to publish a cleaned history, which removed every
+workflow run before that date. The September results below keep their run ids as a record,
+but those runs can no longer be opened. The pipeline and the eval-gate drill were run again
+on the new repository the same day, and those runs are linked.
+
+### Phase 3 results (2026-09-23, run 35849205060)
 
 | Check | Result |
 |---|---|
@@ -179,7 +186,7 @@ Azure login is `azure/login` with the federated credential. `gh secret list` sho
 | gitleaks | no leaks across 13 commits |
 | Push to promoted, wall clock | 8 min 34 s |
 | Azure credential stored in GitHub | none |
-| Failure drill, [PR #1](https://github.com/bradleyhet/azure-llmops-pipeline/pull/1) with retrieval `minScore` raised above 1 | eval gate red at 17 of 30 (0.57 against the 0.95 floor), build and every later job skipped, nothing reached Azure; [run 35850272501](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/35850272501) |
+| Failure drill, with retrieval `minScore` raised above 1 | eval gate red at 17 of 30 (0.57 against the 0.95 floor), build and every later job skipped, nothing reached Azure; run 35850272501. Repeated on 2026-11-19 as [PR #4](https://github.com/bradleyhet/azure-llmops-pipeline/pull/4) with the same result, 17 of 30 and every job after the gate skipped; [run 44495870481](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/44495870481) |
 
 Three things it took to get here, kept because they are what an interviewer asks about:
 
@@ -192,7 +199,7 @@ Three things it took to get here, kept because they are what an interviewer asks
 - gitleaks scans only the pushed commits on `push` but the whole history on
   `workflow_dispatch`, which is how it found the fake keys in the guardrail tests.
 
-### Phase 4 results, rollback drill (2026-09-23, [run 35852147952](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/35852147952))
+### Phase 4 results, rollback drill (2026-09-23, run 35852147952)
 
 The eval-gate drill in Phase 3 stopped a bad change before an image existed. This drill
 asks the other question: what happens when a change passes every pre-deploy check and only
@@ -209,12 +216,12 @@ the same code in-process, so the fault was put where only the deployment can see
 | Promote | skipped |
 | Rollback job | deactivated `--82e9fb0`; `az containerapp revision list` shows `--5083634` still active at 100 |
 | App FQDN during and after | `/readyz` reported `corella-assistant--5083634` throughout |
-| Revert, [run 35853071238](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/35853071238) | 30 of 30 over HTTP; p50 1.35 s, p95 2.84 s; promoted to `corella-assistant--5bb27e1` |
+| Revert, run 35853071238 | 30 of 30 over HTTP; p50 1.35 s, p95 2.84 s; promoted to `corella-assistant--5bb27e1` |
 | Rollback command needed | none; traffic was pinned to the previous revision by the deploy, so there was nothing to move back |
 
 Both rows are in [`docs/results.md`](docs/results.md).
 
-### Phase 4 results, prod release (2026-09-24, [run 35950368110](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/35950368110))
+### Phase 4 results, prod release (2026-09-24, run 35950368110)
 
 Prod first hit a subscription limit: the Azure free trial allows one Container Apps
 environment in total, dev held it, and the prod what-if failed with
@@ -240,6 +247,20 @@ hand, and the tag did the rest.
 | Promote | one active revision, `corella-assistant--cdd893a` at 100 percent; `/readyz` and `/version` on the prod FQDN report it |
 | Tag to promoted, wall clock | 9 min 3 s |
 | Azure credential stored in GitHub | none; the `prod` environment has its own federated credential |
+
+### Re-run on the recreated repository (2026-11-19, [run 44494594189](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/44494594189))
+
+A push to `main` (the budget start-date fix and the three-vote faithfulness judge) went
+through the whole dev pipeline.
+
+| Check | Result |
+|---|---|
+| Quality, gitleaks, Checkov, dependency audit | green |
+| Eval gate, in-process | 30 of 30 |
+| Build and Trivy | green |
+| Canary `corella-assistant--1f978b4` over HTTP | 30 of 30; p50 1.27 s, p95 2.84 s; 0.00044 USD per case, 0.0133 USD for the tier |
+| Promote | `corella-assistant--1f978b4` at 100 percent; `/version` on the dev FQDN reports it |
+| Push to promoted, wall clock | 7 min 59 s |
 
 ## What this does not show
 

@@ -22,6 +22,11 @@ to Azure Container Apps, with:
 | 4. Prod environment and rollback drill | Rollback drill done: a deploy-only fault reached dev as canary `corella-assistant--82e9fb0`, verify scored 6 of 30, traffic never left the live revision. Prod live: tag `v0.1.0` deployed `corella-assistant--cdd893a` to `rg-llmops-prod`, verified 30 of 30 over HTTP and promoted. Tag `v0.1.1` followed on 2026-11-19 as `corella-assistant--994ad89`, also 30 of 30. |
 | 5. Observability and README | |
 
+The dev app was taken down on 2026-11-19, after the release and drill runs recorded below, and
+the weekly full-tier run against it was disabled the same day. Prod stays up. The rest of the
+dev resource group (environment, Key Vault, identity, workspace) is still in place, so a push to
+`main` deploys dev again.
+
 ## The service
 
 `src/server.ts` serves the assistant on `0.0.0.0:8080`:

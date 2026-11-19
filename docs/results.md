@@ -8,6 +8,7 @@ are in `pipeline/src/llmops_pipeline/parse_results.py`.
 
 The repository was recreated on 2026-11-19, which removed every workflow run before that date.
 Rows up to 2026-11-15 keep the run id as a record but cannot be opened; later rows link to the run.
+The weekly run was disabled on 2026-11-19 when the dev app was taken down, so 2026-11-15 is its last row.
 
 | Date (UTC) | Environment | Revision | Tier | Cases | Pass rate | p50 ms | p95 ms | Cost per case USD | Run |
 |---|---|---|---|---|---|---|---|---|---|

@@ -24,8 +24,9 @@ to Azure Container Apps, with:
 
 The dev app was taken down on 2026-11-19, after the release and drill runs recorded below, and
 the weekly full-tier run against it was disabled the same day. Prod stays up. The rest of the
-dev resource group (environment, Key Vault, identity, workspace) is still in place, so a push to
-`main` deploys dev again.
+dev resource group (environment, Key Vault, identity, workspace) is still in place. A push to
+`main` no longer deploys dev: since the same day that deploy starts only from a manual run of
+"Assistant (dev)", which recreates the app.
 
 ## The service
 
@@ -148,8 +149,8 @@ The app definition stores only the vault URL:
 ## Pipeline
 
 `.github/workflows/reusable-ai-service.yml` is one `workflow_call` workflow. `assistant-dev.yml`
-runs it on every pull request (no deploy) and on every push to `main` (deploy to
-`rg-llmops-dev`); `assistant-prod.yml` runs the same file on a `v*` tag against
+runs it on every pull request and every push to `main` (no deploy), and deploys to
+`rg-llmops-dev` when started by hand (every push to `main` deployed until 2026-11-19); `assistant-prod.yml` runs the same file on a `v*` tag against
 `rg-llmops-prod`. `nightly.yml` runs the full tier over HTTP against dev once a week (Monday 02:00 Perth;
 nightly until 2026-10-21) and appends a row to
 [`docs/results.md`](docs/results.md). The Python side lives in [`pipeline/`](pipeline/README.md).

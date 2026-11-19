@@ -10,13 +10,16 @@
 # The two grader prompts are overridden (statement extraction, then NLI): the stock prompts let
 # the judge add preamble and inferred statements, each counted as an unsupported claim, which
 # put every human-faithful answer between 0.33 and 0.75.
+# Since 2026-11-19 the check runs three times and the median score decides
+# (faithful-majority.ts calls promptfoo's own context-faithfulness matcher with the two prompt
+# files above and the judge from defaultTest). A single verdict was not stable enough: the judge
+# rejected one correct answer (gr-001) in 6 of 22 gate runs that day. See README, Methodology.
 faithful:
-  type: context-faithfulness
-  threshold: 0.7
-  rubricPrompt:
-    - file://evals/assertions/faithfulness-longform.txt
-    - file://evals/assertions/faithfulness-nli.txt
-  contextTransform: 'output.context.join("\n\n")'
+  type: javascript
+  value: file://evals/assertions/faithful-majority.ts
+  config:
+    votes: 3
+    threshold: 0.7
 # The stock context-recall prompt asks the judge to "think in steps", and on 2026-09-23/24 it
 # twice replied without a single [Attributed] or [Not Attributed] token; promptfoo scores a
 # reply with no tokens as 0, so a correct answer failed (gr-003 nightly, gr-007 canary).

@@ -60,11 +60,29 @@ repeated its own verdicts on 162 of 163. `gpt-oss-120b` was tried first and was 
 but failed three or four correct answers per run, a different set each time, which a 0.95 gate
 over 30 cases cannot absorb.
 
+On 2026-11-19 the gate failed twice at 28 of 30 on answers that had not changed, so two judged
+checks were changed. The faithfulness check now runs three times per row and the median score
+decides (`evals/assertions/faithful-majority.ts`). A single verdict was not stable: the same
+correct answer to `gr-001` scored 0.67 against the 0.7 threshold in 6 of 22 gate runs, and in
+direct replays the judge rejected one of its statements in 7 of 12 calls, then in 22 of 24. The
+votes bypass promptfoo's response cache, because three identical requests otherwise get one
+stored reply back three times. The verdict prompt now also tells the judge to read a phrase that
+points back ("that month") in light of the earlier statements. Separately, the `gr-011` rubric
+said the answer "may note" a detail, which the judge read as required in 11 of 12 uncached runs;
+it now says the detail is welcome but not required.
+
+After the change, twelve smoke-tier runs passed 30 of 30 each: six with the pipeline's command
+and six with the cache off entirely. The vote split in 4 of 192 faithfulness checks and the
+wrong verdict was outvoted every time. To check the new prompt is no more lenient, 39
+deliberately corrupted answers were judged under the old and new verdict prompts: both accepted
+the same 9. Those 9 are a limit of the 0.7 threshold (one wrong figure in a five-claim answer
+scores 0.8), which this change neither caused nor fixed.
+
 ### Run it locally
 
 ```bash
 bun install
-bun run test            # 102 unit tests, no network
+bun run test            # 113 unit tests, no network
 cp .env.example .env    # add your OpenRouter key
 bun run start           # http://localhost:8080
 

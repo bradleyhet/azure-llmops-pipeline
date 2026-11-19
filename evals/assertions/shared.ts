@@ -27,7 +27,16 @@ export interface ProviderMetadata {
 export interface AssertionContext {
   vars?: Record<string, unknown>;
   metadata?: ProviderMetadata;
-  providerResponse?: { output?: unknown; metadata?: ProviderMetadata };
+  providerResponse?: {
+    output?: unknown;
+    /** The provider's output before the test-level `transform` (here `output.answer`) replaced it. */
+    providerTransformedOutput?: unknown;
+    metadata?: ProviderMetadata;
+  };
+  /** The assertion's own `config:` block from the test file. */
+  config?: Record<string, unknown>;
+  /** The test case, with `defaultTest` merged in; `options.provider` is the judge. */
+  test?: { options?: { provider?: unknown } };
 }
 
 export interface GradingResult {

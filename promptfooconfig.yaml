@@ -14,7 +14,7 @@ providers:
       model: google/gemini-2.5-flash
       retrieval:
         k: 6
-        minScore: 0
+        minScore: 1.01 # drill: no chunk can pass, the gate must fail
       maxToolRounds: 3
       temperature: 0
       maxTokens: 600

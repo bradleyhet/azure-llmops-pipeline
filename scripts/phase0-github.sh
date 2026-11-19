@@ -2,10 +2,13 @@
 # Phase 0, GitHub side. Idempotent. Run after scripts/phase0-azure.sh and after
 # the repo exists (gh repo create bradleyhet/azure-llmops-pipeline --public).
 #
-# Creates environments dev and prod (prod requires Brad's review), sets the
-# Azure identity variables on each, and sets OPENROUTER_API_KEY as an
-# environment secret for the eval jobs. The runtime copy of that key lives in
-# Key Vault, seeded in Phase 2, never here.
+# Creates environments dev and prod (prod requires Brad's review) and sets on
+# each the AZURE_RG variable plus four or five secrets: the three Azure
+# identifiers, OPENROUTER_API_KEY for the eval jobs and, when BUDGET_EMAIL is
+# set in the shell, the budget alert address. The identifiers are not
+# credentials, but GitHub prints variables in run logs and masks secrets, and
+# the logs of a public repo are public. The runtime copy of the OpenRouter key
+# lives in Key Vault, seeded in Phase 2, never here.
 set -euo pipefail
 # Git Bash on Windows rewrites arguments starting with / into Windows paths,
 # which mangles Azure resource ids such as /subscriptions/... Disable that.
@@ -45,11 +48,16 @@ fi
 
 echo "== Variables and secrets"
 for env in dev prod; do
-  gh variable set AZURE_CLIENT_ID       --repo "$REPO" --env "$env" --body "$APP_ID"
-  gh variable set AZURE_TENANT_ID       --repo "$REPO" --env "$env" --body "$TENANT_ID"
-  gh variable set AZURE_SUBSCRIPTION_ID --repo "$REPO" --env "$env" --body "$SUB_ID"
   gh variable set AZURE_RG              --repo "$REPO" --env "$env" --body "rg-llmops-$env"
+  gh secret   set AZURE_CLIENT_ID       --repo "$REPO" --env "$env" --body "$APP_ID"
+  gh secret   set AZURE_TENANT_ID       --repo "$REPO" --env "$env" --body "$TENANT_ID"
+  gh secret   set AZURE_SUBSCRIPTION_ID --repo "$REPO" --env "$env" --body "$SUB_ID"
   gh secret   set OPENROUTER_API_KEY    --repo "$REPO" --env "$env" --body "$OPENROUTER_API_KEY"
+  if [ -n "${BUDGET_EMAIL:-}" ]; then
+    gh secret set BUDGET_EMAIL          --repo "$REPO" --env "$env" --body "$BUDGET_EMAIL"
+  else
+    echo "BUDGET_EMAIL not set in the shell: $env gets no budget secret, so the deploy skips the budget"
+  fi
   echo "$env configured"
 done
 

@@ -99,7 +99,7 @@ ASSISTANT_URL=http://localhost:8080 bun run eval:smoke:http
 | `identity` | User-assigned managed identity | the only principal that can read the secret |
 | `keyvault` | Key Vault, RBAC authorisation | soft delete on; purge protection is a parameter; Secrets User role bound to the identity inside the template |
 | `environment` | Container Apps managed environment | consumption plan, logs to the workspace |
-| `budget` | Monthly cost budget on the resource group | alerts at 50, 80 and 100 percent actual and 100 percent forecast; created only when the `BUDGET_EMAIL` environment variable is set in GitHub, so no address is committed. A budget alerts; it never stops spending |
+| `budget` | Monthly cost budget on the resource group | alerts at 50, 80 and 100 percent actual and 100 percent forecast; created only when the `BUDGET_EMAIL` environment secret is set in GitHub, so no address is committed or printed in a log. A budget alerts; it never stops spending |
 | `app` | Container App, Multiple revisions mode | ingress 8080, scale 0 to 2, probes on `/healthz` and `/readyz`, secret is a `keyVaultUrl` reference resolved by the identity |
 
 The OpenRouter key is written to the vault once by hand (`scripts/phase2-seed-secret.sh`).

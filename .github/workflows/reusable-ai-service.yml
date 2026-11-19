@@ -173,8 +173,13 @@ jobs:
   eval-gate:
     name: Eval gate (in-process promptfoo, ${{ inputs.smoke-filter }})
     needs: quality
-    # The OpenRouter key is an environment secret, so fork pull requests cannot run this.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # The OpenRouter key is an environment secret, so fork pull requests cannot run this. Nor can
+    # Dependabot's: GitHub withholds Actions secrets from the runs it triggers. Its pull requests
+    # only bump action versions, so they get quality and scans; build needs this job and skips too.
+    if: >-
+      github.event_name != 'pull_request'
+      || (github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]')
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     permissions:

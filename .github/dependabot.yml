@@ -1,0 +1,17 @@
+# Keeps the SHA-pinned actions in .github/workflows current. A pinned SHA never moves on its
+# own, so without this the pins only go stale. All updates arrive as one grouped PR a week.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Australia/Perth
+    groups:
+      actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: ci

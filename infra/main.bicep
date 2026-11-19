@@ -56,6 +56,9 @@ param budgetAmount int = 20
 @description('Address the budget alerts go to. Empty skips the budget; the pipeline passes the BUDGET_EMAIL environment variable so no address is committed.')
 param budgetEmail string = ''
 
+@description('First day of the month the budget was created in, yyyy-MM-dd. Azure never lets it change afterwards. For a new environment, use the first of the current month.')
+param budgetStartDate string = ''
+
 @description('Set false on the very first deploy of an environment, before the Key Vault secret exists.')
 param deployApp bool = true
 
@@ -87,6 +90,7 @@ module budget 'modules/budget.bicep' = if (!empty(budgetEmail)) {
     name: 'budget-llmops-${environmentName}'
     amount: budgetAmount
     contactEmails: [budgetEmail]
+    startDate: budgetStartDate
   }
 }
 

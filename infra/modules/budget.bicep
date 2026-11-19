@@ -6,9 +6,11 @@ param name string
 param amount int
 param contactEmails array
 
-// A past start date must fall inside the current month, so each deploy restates the first of
-// this month. utcNow() is only allowed as a parameter default, hence a parameter.
-param startDate string = '${utcNow('yyyy-MM')}-01'
+// Azure refuses any change to an existing budget's start date ("Start date of budgets cannot be
+// updated"), so the date is fixed per environment in its parameter file and never derived from
+// the clock. Restating "the first of this month" broke the first deploy after the month rolled over.
+@description('First day of the month the budget was created in, yyyy-MM-dd.')
+param startDate string
 
 var notify = {
   enabled: true

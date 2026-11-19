@@ -1,7 +1,7 @@
 # Eval results
 
 One row per eval run over HTTP against a deployed revision, appended by `eval-report`
-(the two rollback-drill rows and the first prod row below were written by hand from the `verify-canary` job summaries)
+(the two rollback-drill rows and the two prod rows below were written by hand from the `verify-canary` job summaries)
 (`pipeline/src/llmops_pipeline/report.py`) and committed by the workflow that ran it. The
 weekly run covers the full tier against whichever dev revision holds traffic (nightly until 2026-10-21). Thresholds
 are in `pipeline/src/llmops_pipeline/parse_results.py`.
@@ -48,3 +48,4 @@ Rows up to 2026-11-15 keep the run id as a record but cannot be opened; later ro
 | 2026-11-01 21:33 | dev | corella-assistant--97220c2 | full | 95 | 97.8% (89/91, 4 known excluded) | 1360 | 2691 | 0.00044 | 41352291348 |
 | 2026-11-08 21:33 | dev | corella-assistant--97220c2 | full | 95 | 97.8% (89/91, 4 known excluded) | 1358 | 2590 | 0.00044 | 42525406493 |
 | 2026-11-15 22:21 | dev | corella-assistant--97220c2 | full | 95 | 97.8% (89/91, 4 known excluded) | 1289 | 2557 | 0.00042 | 43768437621 |
+| 2026-11-19 09:34 | prod | `corella-assistant--994ad89` (prod release, tag `v0.1.1`; promoted) | smoke | 30 | 100.0% (30/30) | 1251 | 2869 | 0.00044 | [44496616310](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/44496616310) |

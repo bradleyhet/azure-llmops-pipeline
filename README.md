@@ -19,7 +19,7 @@ to Azure Container Apps, with:
 | 1. HTTP service and container | Done. See below. |
 | 2. Infrastructure as code (Bicep) | Done. Dev environment live, key resolved from Key Vault by managed identity. |
 | 3. Reusable pipeline, scans, scored canary | Done. Push to `main` produced canary `corella-assistant--323fcec` at 0 percent, verified 30 of 30 over HTTP, promoted to 100. |
-| 4. Prod environment and rollback drill | Rollback drill done: a deploy-only fault reached dev as canary `corella-assistant--82e9fb0`, verify scored 6 of 30, traffic never left the live revision. Prod live: tag `v0.1.0` deployed `corella-assistant--cdd893a` to `rg-llmops-prod`, verified 30 of 30 over HTTP and promoted. |
+| 4. Prod environment and rollback drill | Rollback drill done: a deploy-only fault reached dev as canary `corella-assistant--82e9fb0`, verify scored 6 of 30, traffic never left the live revision. Prod live: tag `v0.1.0` deployed `corella-assistant--cdd893a` to `rg-llmops-prod`, verified 30 of 30 over HTTP and promoted. Tag `v0.1.1` followed on 2026-11-19 as `corella-assistant--994ad89`, also 30 of 30. |
 | 5. Observability and README | |
 
 ## The service
@@ -261,6 +261,22 @@ through the whole dev pipeline.
 | Canary `corella-assistant--1f978b4` over HTTP | 30 of 30; p50 1.27 s, p95 2.84 s; 0.00044 USD per case, 0.0133 USD for the tier |
 | Promote | `corella-assistant--1f978b4` at 100 percent; `/version` on the dev FQDN reports it |
 | Push to promoted, wall clock | 7 min 59 s |
+
+### Prod release v0.1.1 (2026-11-19, [run 44496616310](https://github.com/bradleyhet/azure-llmops-pipeline/actions/runs/44496616310))
+
+The second prod release, and the first on the recreated repository. It carries the budget
+start-date fix, without which the canary deploy step fails on any deploy in a later month than
+the budget's creation, and the three-vote faithfulness judge.
+
+| Check | Result |
+|---|---|
+| Trigger | `git push origin v0.1.1`; `assistant-prod.yml` calls the same reusable workflow as dev |
+| Quality, gitleaks, Checkov, dependency audit | green |
+| Eval gate, in-process | 30 of 30 |
+| Build and Trivy | green |
+| Canary `corella-assistant--994ad89` over HTTP | 30 of 30; p50 1.25 s, p95 2.87 s; 0.00044 USD per case, 0.0133 USD for the tier; 0 errors |
+| Promote | `corella-assistant--994ad89` at 100 percent, replacing `corella-assistant--cdd893a`; `/version` on the prod FQDN reports it |
+| Tag to promoted, wall clock | 7 min 53 s |
 
 ## What this does not show
 
